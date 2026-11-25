@@ -28,6 +28,14 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
   const setProgress = (v) => setResolveState?.(s => ({ ...s, progress: typeof v === 'function' ? v(s.progress) : v }))
   const setResolvedItems = (v) => setResolveState?.(s => ({ ...s, resolvedItems: typeof v === 'function' ? v(s.resolvedItems) : v }))
   const fileRef = useRef()
+  const resolveCancelRef = useRef({ cancelled: false })
+
+  const cancelResolve = (silent=false) => {
+    resolveCancelRef.current.cancelled = true
+    setBusy(false)
+    setProgress(p => ({ ...p, active:false, current: 'Cancelled' }))
+    if (!silent) showToast('Resolve cancelled')
+  }
 
   const onResolve = async () => {
     const text = link.trim()
@@ -46,12 +54,14 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
     if (provider === 'DISKWALA' || (diskwala.length && !terabox.length)) return showToast('DiskWala coming soon')
     if (!terabox.length) return showToast('Unsupported link. Terabox works now; DiskWala coming soon.')
 
+    resolveCancelRef.current.cancelled = false
     setBusy(true)
     setProgress({ active:true, total: terabox.length, done:0, current: terabox.length===1 ? 'Fetching link…' : `Fetching ${terabox.length} links…`, errors: diskwala.length ? ['DiskWala links skipped (coming soon)'] : [] })
     const resolved = []
     const errors = diskwala.length ? ['DiskWala links skipped (coming soon)'] : []
 
     for (let i = 0; i < terabox.length; i++) {
+      if (resolveCancelRef.current.cancelled) { setBusy(false); return }
       const job = terabox[i]
       const label = guessTitle(text, job.url) || job.url
       setProgress(p => ({ ...p, done: i, current: terabox.length===1 ? 'Resolving Terabox link…' : `Resolving ${i + 1}/${terabox.length}: ${label.slice(0, 45)}` }))
@@ -59,27 +69,26 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
         const media = await resolveTeraboxLink(job.url, {
           teraboxCookie: state.settings?.teraboxCookie || '',
         })
+        if (resolveCancelRef.current.cancelled) { setBusy(false); return }
         setProgress(p => ({ ...p, current: terabox.length===1 ? 'Loading file info…' : `Loading ${i + 1}/${terabox.length} info…` }))
         const title = media.title || guessTitle(text, job.url) || media.name
         const item = { ...media, id: uid(), title, name: media.name || title, createdAt: Date.now() }
         resolved.push(item)
       } catch (e) {
+        if (resolveCancelRef.current.cancelled) { setBusy(false); return }
         errors.push(`${job.url.slice(0, 50)}…: ${String(e?.message || e).slice(0, 140)}`)
       }
       setProgress(p => ({ ...p, done: i + 1, current: terabox.length===1 ? 'Done' : `Processed ${i + 1}/${terabox.length}` }))
     }
 
+    if (resolveCancelRef.current.cancelled) { setBusy(false); return }
     if (unknown.length) errors.push(`${unknown.length} unsupported link(s) skipped`)
     setProgress({ active:false, total: terabox.length, done: terabox.length, current:'Done', errors })
     setBusy(false)
 
     setResolvedItems(resolved)
     if (resolved.length) {
-      if (resolved.length > 1) {
-        showToast(`${resolved.length} Terabox videos ready`)
-      } else {
-        showToast('Terabox video ready')
-      }
+      showToast(resolved.length > 1 ? `${resolved.length} Terabox videos ready` : 'Terabox video ready')
     } else {
       showToast(errors[0] || 'Could not resolve Terabox link')
     }
@@ -139,7 +148,7 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
       <textarea className="input" style={{ minHeight: 96, resize: 'vertical' }} value={link} onChange={e => setLink(e.target.value)} placeholder={'Paste Terabox link(s) or message text.\nExample:\nDhurandhar 2026 Hindi\nhttps://1024terabox.com/s/...'} />
       <div className="row" style={{ marginTop: 10 }}>
         <button className="btn" onClick={onResolve} disabled={busy} style={{ minWidth: 120 }}>{busy ? 'Resolving…' : 'Add / Resolve'}</button>
-        <button className="btn ghost" onClick={() => { setLink(''); setProgress({ active:false,total:0,done:0,current:'',errors:[] }) }} disabled={busy}>Clear</button>
+        <button className="btn ghost" onClick={() => { if (busy) { cancelResolve(); return } setLink(''); setResolvedItems([]); setProgress({ active:false,total:0,done:0,current:'',errors:[] }) }}>{busy ? 'Cancel resolve' : 'Clear'}</button>
       </div>
       <div className="small" style={{ marginTop: 10 }}>Supports multiple Terabox links in one message. Terabox resolves on-device using your private NDUS/cookie in Settings. DiskWala coming soon.</div>
 

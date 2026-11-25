@@ -11,7 +11,7 @@ const DEFAULT_SETTINGS = {
   serverLocked: false,
   teraboxCookie: '', // device-only; never export/log
   teraboxLocked: false,
-  teraboxResolverMode: 'device', // device | legacy
+  teraboxResolverMode: 'device',
   teraboxLog: [],
   updateLog: [],
 }
@@ -33,7 +33,7 @@ export async function loadState() {
     getPref(KEYS.settings, DEFAULT_SETTINGS),
   ])
   const mergedSettings = { ...DEFAULT_SETTINGS, ...(settings || {}) }
-  // Migrate/remove legacy Render resolver fields from runtime object
+  // Migrate/remove legacy resolver fields from runtime object
   delete mergedSettings.resolverUrl
   delete mergedSettings.resolverKey
   delete mergedSettings.resolverLocked
