@@ -10,7 +10,9 @@ const DEFAULT_SETTINGS = {
   serverUrl: '',
   serverLocked: false,
   teraboxCookie: '', // device-only; never export/log
+  teraboxLocked: false,
   teraboxResolverMode: 'device', // device | legacy
+  teraboxLog: [],
   updateLog: [],
 }
 const DEFAULT_PLAYLISTS = [

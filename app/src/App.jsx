@@ -34,7 +34,7 @@ export default function App() {
   const [bootMsg, setBootMsg] = useState('Loading…')
   const [tab, setTab] = useState('home')
   const [toast, setToast] = useState('')
-  const [state, setState] = useState({ adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:"watch-later",name:"WATCH LATER",builtIn:true,items:[],updatedAt:Date.now()},{id:"favourites",name:"FAVOURITES",builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,downloadDir:"Download",downloadStorage:"inapp",serverUrl:"",serverLocked:false,teraboxCookie:"",teraboxResolverMode:"device",updateLog:[]} })
+  const [state, setState] = useState({ adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:"watch-later",name:"WATCH LATER",builtIn:true,items:[],updatedAt:Date.now()},{id:"favourites",name:"FAVOURITES",builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,downloadDir:"Download",downloadStorage:"inapp",serverUrl:"",serverLocked:false,teraboxCookie:"",teraboxLocked:false,teraboxResolverMode:"device",teraboxLog:[],updateLog:[]} })
   const [adminInput, setAdminInput] = useState('')
   const [adminErr, setAdminErr] = useState('')
   const [adminAttempts, setAdminAttempts] = useState(0)

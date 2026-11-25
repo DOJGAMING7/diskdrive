@@ -22,7 +22,9 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
 
   const serverUrl = state.settings?.serverUrl?.trim() || ''
   const serverLocked = !!state.settings?.serverLocked
-  const teraboxCookie = state.settings?.teraboxCookie || '' 
+  const teraboxCookie = state.settings?.teraboxCookie || ''
+  const teraboxLocked = !!state.settings?.teraboxLocked
+  const teraboxLog = Array.isArray(state.settings?.teraboxLog) ? state.settings.teraboxLog : [] 
 
   const checkUiUpdate = async () => {
     if (!serverUrl) { showToast('Set server URL first'); return }
@@ -69,18 +71,26 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
     else showToast(`Update check: ${res.status}`)
   }
 
+  const pushTeraboxLog = async (entry) => {
+    const log = Array.isArray(state.settings?.teraboxLog) ? state.settings.teraboxLog : []
+    await save({ settings: { ...state.settings, teraboxLog: [{ at: Date.now(), ...entry }, ...log].slice(0, 20) } })
+  }
+
   const saveTerabox = async () => {
     const next = String(state.settings?.teraboxCookie || '').trim()
-    await save({ settings: { ...state.settings, teraboxCookie: next, teraboxResolverMode: 'device' } })
-    setTeraboxSavedMsg(next ? 'Saved on device' : 'Cleared')
+    const prev = String(state.settings?.teraboxCookie || '')
+    await save({ settings: { ...state.settings, teraboxCookie: next, teraboxResolverMode: 'device', teraboxLocked: !!next } })
+    setTeraboxSavedMsg(next ? 'Saved & locked on device' : 'Cleared')
     setTeraboxStatus(null)
-    showToast(next ? 'Terabox NDUS saved on device' : 'Terabox NDUS cleared')
+    if (next !== prev) await pushTeraboxLog({ action: next ? 'saved' : 'cleared', ok: true, msg: next ? 'NDUS saved on device' : 'NDUS cleared' })
+    showToast(next ? 'Terabox NDUS saved and locked' : 'Terabox NDUS cleared')
   }
 
   const clearTerabox = async () => {
-    await save({ settings: { ...state.settings, teraboxCookie: '' } })
+    await save({ settings: { ...state.settings, teraboxCookie: '', teraboxLocked: false } })
     setTeraboxSavedMsg('Cleared')
     setTeraboxStatus(null)
+    await pushTeraboxLog({ action: 'cleared', ok: true, msg: 'NDUS cleared (1-click)' })
     showToast('Terabox NDUS cleared from device')
   }
 
@@ -96,11 +106,13 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
       const ok = !!(r?.directUrl || r?.src)
       const status = { ok, msg: ok ? `On-device resolve OK (${String(r?.name||'file').slice(0,40)})` : 'Resolved but no direct link' }
       setTeraboxStatus(status)
+      await pushTeraboxLog({ action: 'test', ok, msg: status.msg })
       return status
     } catch (e) {
       const msg = String(e?.message || e)
-      const status = { ok:false, msg: msg.includes('cookie') || msg.includes('NDUS') || msg.includes('errno') ? msg.slice(0,160) : `Resolve test failed: ${msg.slice(0,120)}` }
+      const status = { ok:false, msg: msg.slice(0,180) }
       setTeraboxStatus(status)
+      await pushTeraboxLog({ action: 'test', ok: false, msg: msg.slice(0,180) })
       return status
     } finally {
       setTeraboxChecking(false)
@@ -131,7 +143,7 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
 
   const exportBackup = async () => {
     try {
-      const safeSettings = { ...(state.settings||{}) }; delete safeSettings.teraboxCookie; delete safeSettings.resolverUrl; delete safeSettings.resolverKey; delete safeSettings.resolverLocked;
+      const safeSettings = { ...(state.settings||{}) }; delete safeSettings.teraboxCookie; delete safeSettings.teraboxLocked; delete safeSettings.teraboxLog; delete safeSettings.resolverUrl; delete safeSettings.resolverKey; delete safeSettings.resolverLocked;
       const data = { v:1, exportedAt:new Date().toISOString(), state: { history: state.history||[], playlists: state.playlists||[], downloads: state.downloads||[], settings: safeSettings } }
       const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'})
       const a = document.createElement('a'); const url = URL.createObjectURL(blob)
@@ -149,6 +161,8 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
       const importedSettings = { ...(st.settings || {}) }
       // Never import secrets/legacy resolver credentials from backups
       delete importedSettings.teraboxCookie
+      delete importedSettings.teraboxLocked
+      delete importedSettings.teraboxLog
       delete importedSettings.resolverUrl
       delete importedSettings.resolverKey
       delete importedSettings.resolverLocked
@@ -214,17 +228,18 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
       <p className="small" style={{marginTop:0}}>Uses your Terabox NDUS/cookie on this device only to resolve direct links. It is never committed, never sent to OTA, and never included in backup export.</p>
       <div style={{display:'grid',gap:8}}>
         <div style={{display:'flex',gap:8}}>
-          <input className="input" value={teraboxCookie} onChange={e=>{ setTeraboxSavedMsg(''); save({ settings:{ ...state.settings, teraboxCookie:e.target.value } }) }} placeholder="NDUS or full cookie (device-only)" type={showNdus?'text':'password'} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
+          <input className="input" value={teraboxCookie} disabled={teraboxLocked} onChange={e=>{ setTeraboxSavedMsg(''); save({ settings:{ ...state.settings, teraboxCookie:e.target.value } }) }} placeholder="NDUS or full cookie (device-only)" type={showNdus?'text':'password'} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
           <button className="btn ghost" onClick={()=>setShowNdus(v=>!v)}>{showNdus?'Hide':'Show'}</button>
         </div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          <button className="btn primary" onClick={saveTerabox}>Save on device</button>
+          {!teraboxLocked ? <button className="btn primary" onClick={saveTerabox}>Save & Lock</button> : <button className="btn ghost" onClick={()=>save({ settings:{ ...state.settings, teraboxLocked:false } })}>Unlock</button>}
           <button className="btn ghost" onClick={checkTerabox} disabled={teraboxChecking}>{teraboxChecking ? 'Testing…' : 'Test resolve'}</button>
-          <button className="btn ghost" onClick={clearTerabox}>Clear</button>
+          <button className="btn ghost" onClick={clearTerabox}>Clear (1-click)</button>
         </div>
-        {teraboxSavedMsg && <div className="small">{teraboxSavedMsg}</div>}
+        <div className="small" style={{marginTop:2}}>{teraboxLocked ? '🔒 Locked' : '🔓 Unlocked'}{teraboxSavedMsg ? ` • ${teraboxSavedMsg}` : ''}</div>
         {teraboxStatus && <div className="small" style={{color:teraboxStatus.ok?'#7fdca3':'#ff9b9b'}}>{teraboxStatus.msg}</div>}
         <div className="small" style={{opacity:.7}}>Tip: paste just the NDUS value, or a full cookie containing ndus=…</div>
+        {teraboxLog.length > 0 && <details style={{marginTop:8}}><summary className="small" style={{cursor:'pointer'}}>NDUS history ({teraboxLog.length})</summary><div style={{marginTop:6,display:'grid',gap:6}}>{teraboxLog.map((l,i)=><div key={i} className="small" style={{opacity:.85}}><span style={{color:l.ok?'#7fdca3':'#ff9b9b'}}>{l.ok?'●':'○'}</span> {new Date(l.at).toLocaleString()} • {l.action} • {String(l.msg||'').slice(0,120)}</div>)}<button className="btn ghost" onClick={()=>save({ settings:{ ...state.settings, teraboxLog: [] } })}>Clear history</button></div></details>}
       </div>
     </div>
 
