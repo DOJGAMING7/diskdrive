@@ -17,20 +17,26 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
   const [conn, setConn] = useState(null)
   const [connBusy, setConnBusy] = useState(false)
   const [latestUi, setLatestUi] = useState(null)
+  const [uiCheckBusy, setUiCheckBusy] = useState(false)
 
-  useEffect(() => {
-    let dead = false
-    ;(async () => {
-      if (!serverUrl) return
-      try {
-        const r = await fetch(serverUrl.replace(/\/$/,'') + '/ui-manifest.json', { cache:'no-store' })
-        if (!r.ok || dead) return
-        const m = await r.json()
-        if (!dead) setLatestUi({ version: m.version, notes: m.notes||[], date: m.date||'' })
-      } catch {}
-    })()
-    return () => { dead = true }
-  }, [serverUrl])
+  const checkUiUpdate = async () => {
+    if (!serverUrl) { showToast('Set server URL first'); return }
+    setUiCheckBusy(true)
+    try {
+      const r = await fetch(serverUrl.replace(/\/$/,'') + '/ui-manifest.json?t=' + Date.now(), { cache:'no-store' })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const m = await r.json()
+      setLatestUi({ version: m.version, notes: m.notes||[], date: m.date||'' })
+      const cur = (await getBundleMeta())?.version || ''
+      if (m.version && m.version !== cur) showToast(`Update available: ${m.version}`)
+      else showToast(`UI up to date (${m.version || cur || 'bundled'})`)
+    } catch (e) {
+      showToast('Could not check update')
+    }
+    setUiCheckBusy(false)
+  }
+
+  useEffect(() => { checkUiUpdate() }, [serverUrl])
 
   const serverUrl = state.settings?.serverUrl?.trim() || ''
   const serverLocked = !!state.settings?.serverLocked
@@ -179,6 +185,7 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
       <div className="row" style={{marginTop:10}}>
         {!serverLocked ? <button className="btn ghost" onClick={()=>save({ settings:{...state.settings, serverLocked:true } })}>Lock URL</button> : <button className="btn ghost" onClick={()=>save({ settings:{...state.settings, serverLocked:false } })}>Unlock URL</button>}
         <button className="btn" onClick={checkServer} disabled={checking}>{checking?'Checking…':'Check server'}</button>
+        <button className="btn ghost" onClick={checkUiUpdate} disabled={uiCheckBusy}>{uiCheckBusy?'Checking…':'Check update'}</button>
         <button className="btn ghost" onClick={updateUi} disabled={updating}>{updating?'Updating…':'Update UI'}</button>
       </div>
       <div className="small" style={{marginTop:10}}>
