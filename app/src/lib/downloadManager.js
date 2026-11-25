@@ -18,13 +18,22 @@ async function resolveSaveDir(dirName='Download') {
   return { directory: Directory.Documents, path: folder }
 }
 
+const JOBS_KEY = 'dd_download_jobs_v1'
+function loadJobs() { try { return JSON.parse(localStorage.getItem(JOBS_KEY) || '[]') } catch { return [] } }
+function saveJobs(jobs) { try { localStorage.setItem(JOBS_KEY, JSON.stringify([...jobs.values()].map(j => ({...j, speedBps:0, etaSec:null })))) } catch {} }
+
 export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
   const jobs = new Map()
   const controllers = new Map()
   let running = 0
   const max = 2
 
-  function emit() { onUpdate?.([...jobs.values()].map(j => ({ ...j }))) }
+  function emit() { saveJobs(jobs); onUpdate?.([...jobs.values()].map(j => ({ ...j }))) }
+  for (const j of loadJobs()) {
+    if (!j?.id) continue
+    if (['downloading','resolving','queued'].includes(j.status)) { j.status = 'error'; j.error = j.error || 'Interrupted - tap Retry' }
+    jobs.set(j.id, j)
+  }
   function isActive(j) { return j && ['queued','downloading','resolving'].includes(j.status) }
 
   async function run(job) {
@@ -59,8 +68,12 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
           }) } catch {}
           try {
             const res = await Filesystem.downloadFile({ url: dlUrl, path: dest, directory: destDir.directory, progress: true })
-            if (!res?.path && !res) throw new Error('Download failed')
-            return true
+          if (!res?.path && !res) throw new Error('Download failed')
+          try {
+            const st = await Filesystem.stat({ path: dest, directory: destDir.directory })
+            if (st?.size) { job.size = Number(st.size); job.totalBytes = Number(st.size); job.receivedBytes = Number(st.size) }
+          } catch {}
+          return true
           } finally { try { await listener?.remove() } catch {} }
         }
         let ok = false
@@ -115,7 +128,7 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
             }
             return new Blob(chunks, { type: res.headers.get('content-type') || 'video/mp4' })
           }
-          const b = await res.blob(); job.totalBytes = b.size; job.receivedBytes = b.size; return b
+          const b = await res.blob(); job.totalBytes = b.size; job.receivedBytes = b.size; job.size = b.size; return b
         }
         let blob
         let lastErr

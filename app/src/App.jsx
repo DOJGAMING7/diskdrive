@@ -50,10 +50,14 @@ export default function App() {
   const [resolveState, setResolveState] = useState({ provider:'AUTO', link:'', busy:false, progress:{ active:false,total:0,done:0,current:'',errors:[] }, resolvedItems:[] })
   const [downloadJobs, setDownloadJobs] = useState([])
   const downloadMgr = useRef(null)
+  const resolverCfg = useRef({ resolverUrl:'', resolverKey:'' })
   const lockTimer = useRef(null)
   const lastActive = useRef(Date.now())
 
+  useEffect(() => { resolverCfg.current = { resolverUrl: state?.settings?.resolverUrl || '', resolverKey: state?.settings?.resolverKey || '' } }, [state?.settings?.resolverUrl, state?.settings?.resolverKey])
+
   useEffect(() => {
+    if (downloadMgr.current) return
     downloadMgr.current = createDownloadManager({
       onUpdate: (jobs) => setDownloadJobs(jobs),
       onComplete: (job) => {
@@ -78,11 +82,13 @@ export default function App() {
       },
       resolveItem: async (job) => {
         if (!job.sourceUrl) throw new Error('No source URL to re-resolve')
-        const r = await resolveTeraboxLink(job.sourceUrl, { resolverUrl: state.settings?.resolverUrl, resolverKey: state.settings?.resolverKey })
+        const cfg = resolverCfg.current
+        const r = await resolveTeraboxLink(job.sourceUrl, { resolverUrl: cfg.resolverUrl, resolverKey: cfg.resolverKey })
         return r
       }
     })
-  }, [state.settings?.resolverUrl, state.settings?.resolverKey])
+    setDownloadJobs(downloadMgr.current.getAll())
+  }, [])
 
   const setBoot = (msg) => { setBootMsg(msg); bootStatus(msg) }
   useEffect(() => { withTimeout(initNative(), 3000, 'native init').catch((e)=>console.warn(e)) }, [])
@@ -227,7 +233,10 @@ export default function App() {
   const addDownload = async (item) => {
     setState(prev => {
       const base = prev || {}
-      const downloads = [{ ...item, id: item.id || uid(), createdAt: item.createdAt || Date.now(), downloadedAt: item.downloadedAt || Date.now() }, ...(base.downloads||[]).filter(d => !(item.sourceUrl && d.sourceUrl===item.sourceUrl) && !(d.src && d.src===item.src))]
+      const prevItem = (base.downloads||[]).find(d => (item.id && d.id===item.id) || (item.sourceUrl && d.sourceUrl===item.sourceUrl) || (item.src && d.src===item.src))
+      const merged = { ...(prevItem||{}), ...item, id: item.id || prevItem?.id || uid(), createdAt: prevItem?.createdAt || item.createdAt || Date.now(), downloadedAt: item.downloadedAt || Date.now() }
+      if (!merged.size && prevItem?.size) merged.size = prevItem.size
+      const downloads = [merged, ...(base.downloads||[]).filter(d => d.id !== merged.id && !(merged.sourceUrl && d.sourceUrl===merged.sourceUrl) && !(merged.src && d.src===merged.src))]
       withTimeout(persist.downloads(downloads), 3000, 'save downloads').catch(console.warn)
       return { ...base, downloads }
     })

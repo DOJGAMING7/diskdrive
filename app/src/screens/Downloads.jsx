@@ -97,6 +97,8 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
             <div className="row" style={{gap:6,flex:'0 0 auto'}}>
               {job.savedPath && <div className="sub">Saved</div>}
               {['queued','downloading','resolving'].includes(job.status) && <button className="btn ghost" style={{padding:'6px 10px',minHeight:32}} onClick={()=>cancelDownload?.(job.id)}>Cancel</button>}
+              {['error','cancelled','done'].includes(job.status) && <button className="btn ghost" style={{padding:'6px 10px',minHeight:32}} onClick={()=>enqueueDownload?.(job)}>Retry</button>}
+              <button className="btn ghost" style={{padding:'6px 10px',minHeight:32,color:'#f88'}} onClick={()=>removeDownloadJob?.(job.id)}>Delete</button>
               <button className="iconbtn" onClick={()=>setMenu({ title: job.title||job.name, items:[
                 ...(['queued','downloading','resolving'].includes(job.status) ? [{label:'Stop download', danger:true, onClick:()=>cancelDownload?.(job.id)}] : []),
                 ...((job.status==='error' || job.status==='cancelled' || job.status==='done') ? [{label:'Retry download', onClick:()=>enqueueDownload?.(job)}] : []),
@@ -120,7 +122,7 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
           <div className="thumb" onClick={()=>openPlayer(item, items)}>{item.thumb && !String(item.thumb).startsWith('blob:') ? <img src={item.thumb} alt="" /> : <I.play/>}</div>
           <div className="meta" onClick={()=>openPlayer(item, items)}>
             <div className="title">{item.title||item.name}</div>
-            <div className="sub">{item.provider||'LOCAL'} • {fmtBytes(item.size||0)}{item.date?` • ${item.date}`:''}</div>
+            <div className="sub">{item.provider||'LOCAL'} • {item.size ? fmtBytes(item.size) : (item.sizeHuman||'Unknown size')}{item.date?` • ${item.date}`:''}{item.savedPath?` • Saved`:''}</div>
           </div>
           <div className="row" style={{gap:6}}>
             <button className="btn ghost" style={{padding:'8px 10px',minHeight:36}} onClick={()=>saveToPhone(item)}>Download</button>
