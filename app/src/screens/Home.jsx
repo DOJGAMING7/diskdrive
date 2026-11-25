@@ -101,8 +101,14 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
   }
 
   const downloadOne = async (item) => {
-    if (enqueueDownload) { enqueueDownload(item); return }
     try {
+      if (item?.nativePath || item?.stored === 'app-private' || item?.stored === 'native-external') {
+        const { saveToPhone } = await import('../lib/export.js')
+        const res = await saveToPhone(item, state.settings?.downloadDir || 'Download', { allowRemoteFetch:false })
+        showToast(res?.status==='already' ? 'Already saved locally' : 'Saved to device')
+        return
+      }
+      if (enqueueDownload) { enqueueDownload(item); return }
       showToast('Downloading…')
       const { saveToPhone } = await import('../lib/export.js')
       const res = await saveToPhone(item, state.settings?.downloadDir || 'Download')
