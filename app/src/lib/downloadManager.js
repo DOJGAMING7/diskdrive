@@ -67,7 +67,8 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
         }
         if (job.status === 'cancelled') throw new DOMException('Aborted','AbortError')
         if (!ok) throw new Error('Download failed')
-        job.progress = 100; job.status = 'done'; job.savedPath = dest; job.savedDirectory = String(destDir.directory)
+        job.progress = 100; job.status = 'done'; job.savedPath = dest; job.savedDirectory = String(destDir.directory); job.nativePath = dest
+        try { const uri = await Filesystem.getUri({ path: dest, directory: destDir.directory }); job.localSrc = Capacitor.convertFileSrc(uri.uri); job.stored = 'native-download' } catch { job.localSrc = job.src; job.stored = 'downloaded' }
       } else {
         const doWeb = async (dlUrl) => {
           const res = await fetch(dlUrl, { signal: ctrl.signal })

@@ -19,6 +19,12 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
   const [latestUi, setLatestUi] = useState(null)
   const [uiCheckBusy, setUiCheckBusy] = useState(false)
 
+  const serverUrl = state.settings?.serverUrl?.trim() || ''
+  const serverLocked = !!state.settings?.serverLocked
+  const resolverLocked = !!state.settings?.resolverLocked
+  const resolverUrl = state.settings?.resolverUrl || ''
+  const resolverKey = state.settings?.resolverKey || ''
+
   const checkUiUpdate = async () => {
     if (!serverUrl) { showToast('Set server URL first'); return }
     setUiCheckBusy(true)
@@ -37,12 +43,6 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
   }
 
   useEffect(() => { checkUiUpdate() }, [serverUrl])
-
-  const serverUrl = state.settings?.serverUrl?.trim() || ''
-  const serverLocked = !!state.settings?.serverLocked
-  const resolverLocked = !!state.settings?.resolverLocked
-  const resolverUrl = state.settings?.resolverUrl || ''
-  const resolverKey = state.settings?.resolverKey || ''
 
   const checkServer = async () => {
     setChecking(true)

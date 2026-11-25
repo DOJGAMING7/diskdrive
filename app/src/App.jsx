@@ -58,7 +58,17 @@ export default function App() {
       onUpdate: (jobs) => setDownloadJobs(jobs),
       onComplete: (job) => {
         if (job.status === 'done') {
-          const item = { id: job.itemId || uid(), title: job.title, name: job.name, fileName: job.fileName, provider: job.provider || 'TERABOX', kind: 'local', src: job.downloadUrl || job.directUrl || job.src, directUrl: job.directUrl, downloadUrl: job.downloadUrl, sourceUrl: job.sourceUrl, thumb: job.thumb, thumbPath: job.thumbPath, date: job.date, size: job.size, sizeHuman: job.sizeHuman, downloadedAt: Date.now(), savedPath: job.savedPath, savedDirectory: job.savedDirectory }
+          const localSrc = job.localSrc || job.downloadUrl || job.directUrl || job.src
+          const item = {
+            id: job.itemId || uid(), title: job.title, name: job.name, fileName: job.fileName,
+            provider: job.provider || 'TERABOX',
+            kind: 'local',
+            src: localSrc,
+            nativePath: job.nativePath || null,
+            directUrl: job.directUrl, downloadUrl: job.downloadUrl, sourceUrl: job.sourceUrl,
+            thumb: job.thumb, thumbPath: job.thumbPath, date: job.date, size: job.size, sizeHuman: job.sizeHuman,
+            downloadedAt: Date.now(), savedPath: job.savedPath, savedDirectory: job.savedDirectory, stored: job.stored || 'downloaded'
+          }
           addDownload(item)
           showToast(`Downloaded: ${job.title || job.name}`)
         } else if (job.status === 'error') {
