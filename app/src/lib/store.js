@@ -8,6 +8,7 @@ const DEFAULT_SETTINGS = {
   serverUrl: '',
   resolverUrl: '',
   resolverKey: '',
+  resolverLocked: false,
 }
 const DEFAULT_PLAYLISTS = [
   { id: 'watch-later', name: 'WATCH LATER', builtIn: true, items: [], updatedAt: now() },

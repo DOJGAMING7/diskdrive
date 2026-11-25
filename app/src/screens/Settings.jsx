@@ -7,11 +7,18 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
   const [serverStatus, setServerStatus] = useState(null)
   const [checking, setChecking] = useState(false)
   const [updating, setUpdating] = useState(false)
+  const [resolverStatus, setResolverStatus] = useState(null)
+  const [resolverChecking, setResolverChecking] = useState(false)
+  const [resolverSavedMsg, setResolverSavedMsg] = useState('')
   const [pinMode, setPinMode] = useState(null)
   const [pin, setPin] = useState('')
   const [pinErr, setPinErr] = useState('')
 
   const serverUrl = state.settings?.serverUrl?.trim() || ''
+  const resolverLocked = !!state.settings?.resolverLocked
+  const resolverUrl = state.settings?.resolverUrl || ''
+  const resolverKey = state.settings?.resolverKey || ''
+
   const checkServer = async () => {
     setChecking(true)
     if (!serverUrl) { setServerStatus({ ok:false, msg:'No server URL configured', at:Date.now() }); setChecking(false); return }
@@ -33,6 +40,32 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
     else if (res.status === 'up-to-date') showToast('UI is up to date')
     else if (res.status === 'offline') showToast('Server unreachable. Cached/bundled UI will be used.')
     else showToast(`Update check: ${res.status}`)
+  }
+
+  const saveResolver = async () => {
+    await save({ settings: { ...state.settings, resolverUrl: resolverUrl.trim(), resolverKey: resolverKey.trim(), resolverLocked: true } })
+    setResolverSavedMsg('Saved and locked')
+    setResolverStatus(null)
+    showToast('Resolver settings saved and locked')
+  }
+
+  const checkResolver = async () => {
+    const base = resolverUrl.trim().replace(/\/+$/, '')
+    if (!base) { setResolverStatus({ ok:false, msg:'Set Resolver URL first' }); return }
+    setResolverChecking(true)
+    try {
+      const healthUrl = base.endsWith('/resolve') ? base.slice(0, -'/resolve'.length) + '/health' : base + '/health'
+      const headers = {}
+      const k = resolverKey.trim()
+      if (k) headers['X-Resolver-Key'] = k
+      const res = await fetch(healthUrl, { method:'GET', headers, cache:'no-store' })
+      const data = await res.json().catch(()=>null)
+      if (res.ok && (data?.ok || data?.service)) setResolverStatus({ ok:true, msg:`Connected (${res.status})` })
+      else setResolverStatus({ ok:false, msg:`Error (${res.status})` })
+    } catch (e) {
+      setResolverStatus({ ok:false, msg:'Not reachable' })
+    }
+    setResolverChecking(false)
   }
 
   const enablePin = () => { setPin(''); setPinErr(''); setPinMode('set') }
@@ -78,10 +111,18 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
 
     <div className="card">
       <div className="section-title">Terabox resolver</div>
-      <p className="small" style={{marginTop:0}}>Set your resolver Worker URL. NDUS stays on the server secret, never in this app.</p>
-      <input className="input" placeholder="Resolver URL (https://.../resolve)" value={state.settings?.resolverUrl||''} onChange={e=>save({ settings:{...state.settings, resolverUrl:e.target.value} })} />
-      <input className="input" style={{marginTop:10}} placeholder="Resolver key (optional)" value={state.settings?.resolverKey||''} onChange={e=>save({ settings:{...state.settings, resolverKey:e.target.value} })} />
-      <div className="small" style={{marginTop:10}}>DiskWala resolve is still coming soon.</div>
+      <p className="small" style={{marginTop:0}}>Set your resolver Worker URL. NDUS stays on the server secret, never in this app. Lock prevents accidental edits.</p>
+      <input className="input" placeholder="Resolver URL (https://.../resolve)" value={resolverUrl} disabled={resolverLocked} onChange={e=>{ setResolverSavedMsg(''); save({ settings:{...state.settings, resolverUrl:e.target.value} }) }} />
+      <input className="input" style={{marginTop:10}} placeholder="Resolver key (optional)" value={resolverKey} disabled={resolverLocked} onChange={e=>{ setResolverSavedMsg(''); save({ settings:{...state.settings, resolverKey:e.target.value} }) }} />
+      <div className="row" style={{marginTop:10}}>
+        {!resolverLocked ? <button className="btn" onClick={saveResolver}>Save & Lock</button> : <button className="btn ghost" onClick={()=>{ save({ settings:{...state.settings, resolverLocked:false} }); setResolverSavedMsg('Unlocked for editing') }}>Unlock</button>}
+        <button className="btn ghost" onClick={checkResolver} disabled={resolverChecking}>{resolverChecking?'Checking…':'Check resolver'}</button>
+      </div>
+      <div className="small" style={{marginTop:10}}>
+        <div>{resolverLocked ? '🔒 Locked' : '🔓 Unlocked' }{resolverSavedMsg ? ` • ${resolverSavedMsg}` : ''}</div>
+        {resolverStatus ? <div style={{marginTop:6}}>{resolverStatus.ok?'●':'○'} {resolverStatus.msg}</div> : null}
+        <div style={{marginTop:6}}>DiskWala resolve is still coming soon.</div>
+      </div>
     </div>
 
     <div className="card">
