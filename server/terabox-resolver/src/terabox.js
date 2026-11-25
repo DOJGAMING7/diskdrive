@@ -67,6 +67,12 @@ function pickDate(file) {
   try { return new Date(n < 1e12 ? n * 1000 : n).toISOString().slice(0, 10); } catch { return ""; }
 }
 
+function pickThumb(file) {
+  const thumbs = file?.thumbs || file?.thumb || {};
+  if (typeof thumbs === "string") return thumbs;
+  return String(thumbs.url3 || thumbs.url2 || thumbs.url1 || thumbs.icon || file?.thumb || "");
+}
+
 function toResult(file, sourceUrl, note = "") {
   const directUrl = String(file?.dlink || "").trim();
   return {
@@ -75,6 +81,8 @@ function toResult(file, sourceUrl, note = "") {
     size: Number(file?.size) || null,
     sizeHuman: humanSize(file?.size),
     date: pickDate(file),
+    uploader: String(file?.owner_name || file?.uname || file?.username || ""),
+    thumb: pickThumb(file),
     directUrl,
     streamUrl: directUrl,
     sourceUrl,

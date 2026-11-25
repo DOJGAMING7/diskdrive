@@ -67,7 +67,14 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
         }
         if (job.status === 'cancelled') throw new DOMException('Aborted','AbortError')
         if (!ok) throw new Error('Download failed')
-        job.progress = 100; job.status = 'done'; job.savedPath = dest; job.savedDirectory = String(destDir.directory); job.nativePath = dest
+        job.progress = 100; job.status = 'done'; job.savedPath = dest; job.savedDirectory = String(destDir.directory)
+        try {
+          const uri = await Filesystem.getUri({ path: dest, directory: destDir.directory })
+          job.nativeUri = uri?.uri || ''
+          job.srcLocal = Capacitor.convertFileSrc(job.nativeUri)
+        } catch {}
+        job.stored = 'native-external'
+        job.kind = 'local' ; job.nativePath = dest
         try { const uri = await Filesystem.getUri({ path: dest, directory: destDir.directory }); job.localSrc = Capacitor.convertFileSrc(uri.uri); job.stored = 'native-download' } catch { job.localSrc = job.src; job.stored = 'downloaded' }
       } else {
         const doWeb = async (dlUrl) => {
@@ -102,8 +109,9 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
             blob = await doWeb(url)
           } else throw e
         }
-        triggerBlobDownload(blob, name)
-        job.progress = 100; job.status = 'done'; job.savedPath = name
+        const blobUrl = URL.createObjectURL(blob)
+        triggerBlobDownloadBlobUrl(blobUrl, name)
+        job.progress = 100; job.status = 'done'; job.savedPath = name; job.srcLocal = blobUrl; job.stored = 'web-download'; job.kind = 'local' 
       }
     } catch (e) {
       if (e?.name === 'AbortError' || job.status === 'cancelled') {
@@ -159,10 +167,13 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
 }
 
 function triggerBlobDownload(blob, name) {
-  const a = document.createElement('a')
   const url = URL.createObjectURL(blob)
+  triggerBlobDownloadBlobUrl(url, name)
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
+}
+function triggerBlobDownloadBlobUrl(url, name) {
+  const a = document.createElement('a')
   a.href = url; a.download = name; a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 5000)
 }
 
 function blobToBase64(blob) {

@@ -49,14 +49,24 @@ function fileToBase64(file) {
   })
 }
 
+function dirFrom(item) {
+  const d = item?.savedDirectory
+  if (d === 'EXTERNAL_STORAGE' || d === 'EXTERNAL' ) return Directory.ExternalStorage
+  if (d === 'DOCUMENTS') return Directory.Documents
+  if (d === 'DATA') return Directory.Data
+  return item?.stored === 'native-external' ? Directory.ExternalStorage : Directory.Data
+}
+
 export async function deleteNativeFile(item) {
   if (!isNative()) return
-  if (item?.nativePath) try { await Filesystem.deleteFile({ path: item.nativePath, directory: Directory.Data }) } catch {}
+  const dir = dirFrom(item)
+  if (item?.nativePath) try { await Filesystem.deleteFile({ path: item.nativePath, directory: dir }) } catch {}
   if (item?.thumbPath) try { await Filesystem.deleteFile({ path: item.thumbPath, directory: Directory.Data }) } catch {}
 }
 
 export async function readNativeBase64(item) {
   if (!isNative() || !item?.nativePath) return null
-  const r = await Filesystem.readFile({ path: item.nativePath, directory: Directory.Data })
+  const dir = dirFrom(item)
+  const r = await Filesystem.readFile({ path: item.nativePath, directory: dir })
   return r.data
 }

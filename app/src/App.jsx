@@ -58,7 +58,7 @@ export default function App() {
       onUpdate: (jobs) => setDownloadJobs(jobs),
       onComplete: (job) => {
         if (job.status === 'done') {
-          const localSrc = job.localSrc || job.downloadUrl || job.directUrl || job.src
+          const localSrc = job.srcLocal || job.nativeUri || job.downloadUrl || job.directUrl || job.src
           const item = {
             id: job.itemId || uid(), title: job.title, name: job.name, fileName: job.fileName,
             provider: job.provider || 'TERABOX',

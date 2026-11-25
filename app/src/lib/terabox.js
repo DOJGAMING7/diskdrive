@@ -61,8 +61,9 @@ export async function resolveTeraboxLink(url, { resolverUrl, resolverKey } = {})
     sourceUrl: String(data.sourceUrl || input),
     size: Number(data.size || 0) || 0,
     sizeHuman: String(data.sizeHuman || ''),
+    thumb: String(data.thumb || data.thumbnail || ''),
     date: String(data.date || ''),
-    uploader: String(data.uploader || data.owner || ''),
+    uploader: String(data.uploader || data.owner || data.owner_name || ''),
     note: String(data.note || ''),
     resolvedAt: Date.now(),
   }
