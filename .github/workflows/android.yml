@@ -26,6 +26,9 @@ jobs:
       - name: Lint source
         working-directory: app
         run: npx eslint -c eslint.config.js "src/**/*.{js,jsx}"
+      - name: Test
+        working-directory: app
+        run: npm test
       - name: Verify web build
         working-directory: app
         run: |

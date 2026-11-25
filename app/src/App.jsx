@@ -31,7 +31,7 @@ export default function App() {
   const [bootMsg, setBootMsg] = useState('Loading…')
   const [tab, setTab] = useState('home')
   const [toast, setToast] = useState('')
-  const [state, setState] = useState(null)
+  const [state, setState] = useState({ adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:"watch-later",name:"WATCH LATER",builtIn:true,items:[],updatedAt:Date.now()},{id:"favourites",name:"FAVOURITES",builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,serverUrl:""} })
   const [adminInput, setAdminInput] = useState('')
   const [adminErr, setAdminErr] = useState('')
   const [adminAttempts, setAdminAttempts] = useState(0)
@@ -123,7 +123,7 @@ export default function App() {
     if (!ready || !state) return
     window.__diskdriveFirstScreen = true
     window.__diskdriveHideBoot?.()
-  }, [ready, state, state.adminUnlocked, locked, tab])
+  }, [ready, state, state?.adminUnlocked, locked, tab])
 
   const openPlayer = (item, queue=[]) => {
     const q = queue.length ? queue : [item]
@@ -152,7 +152,7 @@ export default function App() {
     })
   }
 
-  if (!ready || !state) return <div className="overlay" style={{background:'#000',color:'#fff'}}><div className="panel" style={{background:'#0a0a0a',color:'#fff'}}><h2 style={{color:'#fff'}}>DISKDRIVE</h2><p style={{color:'#ddd'}}>{bootMsg}</p><div className="small" style={{marginTop:12,color:'#bbb'}}>If startup is stuck, wait a few seconds for the error screen.</div></div></div>
+  if (!ready) return <div className="overlay" style={{background:'#000',color:'#fff'}}><div className="panel" style={{background:'#0a0a0a',color:'#fff'}}><h2 style={{color:'#fff'}}>DISKDRIVE</h2><p style={{color:'#ddd'}}>{bootMsg}</p><div className="small" style={{marginTop:12,color:'#bbb'}}>If startup is stuck, wait a few seconds for the error screen.</div></div></div>
 
   if (!state.adminUnlocked) return <AdminGate input={adminInput} setInput={setAdminInput} err={adminErr} attempts={adminAttempts} waitUntil={adminWaitUntil} onSubmit={async ()=>{
     if (Date.now() < adminWaitUntil) return
