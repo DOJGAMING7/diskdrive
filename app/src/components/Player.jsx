@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
 import { fmtTime } from '../lib/store.js'
 
 import { resolveTeraboxLink } from '../lib/terabox.js'
@@ -38,7 +39,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
   useEffect(() => {
     const v = videoRef.current; if (!v) return
     setErr(''); setLoading(true); setPlaying(false); setCurrentTime(0); setDuration(0); setBuffered(0)
-    const chosen = (!useFallback && (item.directUrl || item.src)) ? (item.directUrl || item.src) : (item.src || item.directUrl)
+    const chosen = item.srcLocal || ((!useFallback && (item.directUrl || item.src)) ? (item.directUrl || item.src) : (item.src || item.directUrl))
     v.src = chosen
     v.load()
     const onLoaded = () => { setDuration(v.duration||0); setLoading(false); if (item.position && item.position < (v.duration||99999)-3) v.currentTime = item.position; v.play().then(()=>setPlaying(true)).catch(()=>{}) }
@@ -53,7 +54,8 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
       setLoading(false)
       const canFallback = !useFallback && item.src && item.directUrl && item.src !== item.directUrl
       if (canFallback) { setErr('Trying alternate stream source…'); setUseFallback(true); return }
-      if (item.sourceUrl && teraboxCookie && resolveAttempts.current < 2) {
+      const isLocalSrc = String(item.src||'').startsWith('capacitor:') || String(item.src||'').startsWith('file:') || String(item.src||'').startsWith('blob:')
+      if (!isLocalSrc && item.sourceUrl && teraboxCookie && resolveAttempts.current < 2) {
         resolveAttempts.current += 1
         try {
           setErr('Re-resolving link on device…')
@@ -72,6 +74,32 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
           const msg = String(e?.message || e)
           const isAuth = /cookie\/auth failed|login required|ndus expired|errno=(-6|-1|4|5|112|910000001)/i.test(msg)
           setErr(isAuth ? 'Terabox NDUS/cookie invalid or expired. Update it in Settings.' : msg.slice(0, 220))
+          return
+        }
+      }
+      // Native fallback: download to app cache and play local file (avoids CORS/header issues)
+      if (Capacitor?.isNativePlatform?.() && (item.directUrl || item.src)) {
+        try {
+          setErr('Direct stream failed. Downloading local playback cache…')
+          setLoading(true)
+          const { Filesystem, Directory } = await import('@capacitor/filesystem')
+          const { Capacitor } = await import('@capacitor/core')
+          const srcUrl = item.directUrl || item.src
+          const ext = String(item.name || item.title || 'video.mp4').split('.').pop()?.replace(/[^a-z0-9]/ig,'') || 'mp4'
+          const path = `playcache/${(item.id || 'vid').replace(/[^a-zA-Z0-9_-]/g,'')}.${ext}`
+          try { await Filesystem.mkdir({ path: 'playcache', directory: Directory.Cache, recursive: true }) } catch {}
+          const headers = {}
+          try { const u = new URL(item.sourceUrl || srcUrl); headers['Referer'] = u.origin + '/' } catch {}
+          await Filesystem.downloadFile({ url: srcUrl, path, directory: Directory.Cache, headers, progress: false })
+          const uri = await Filesystem.getUri({ path, directory: Directory.Cache })
+          const local = Capacitor.convertFileSrc(uri.uri)
+          setLoading(false)
+          setErr('')
+          onSelect({ ...item, srcLocal: local, src: local, directUrl: item.directUrl || srcUrl })
+          return
+        } catch (e) {
+          setLoading(false)
+          setErr(`Cannot play/download stream. ${String(e?.message||e).slice(0,160)}`)
           return
         }
       }

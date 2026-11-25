@@ -43,8 +43,15 @@ function keyFor(item) { return item?.sourceUrl || item?.directUrl || item?.src |
 function isActive(j) { return j && ['queued','downloading','resolving'].includes(j.status) }
 
 function normalizeUrlList(job) {
-  return [job.proxyDownloadUrl, job.downloadUrl, job.proxyStreamUrl, job.directUrl, job.src]
-    .filter(u => typeof u === 'string' && /^https?:|^blob:|^data:/i.test(u))
+  return [job.directUrl, job.downloadUrl, job.src, job.proxyDownloadUrl, job.proxyStreamUrl]
+    .map(v => String(v || '').trim())
+    .filter((u, i, a) => u && /^https?:|^blob:|^data:/i.test(u) && a.indexOf(u) === i)
+}
+function dlHeaders(job) {
+  const h = { 'Accept': '*/*' }
+  const ref = job.sourceUrl || job.directUrl || job.downloadUrl || job.src || ''
+  try { const u = new URL(ref); h['Referer'] = u.origin + '/'; } catch {}
+  return h
 }
 
 async function blobToBase64(blob) {
@@ -123,7 +130,7 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
             })
           } catch {}
           try {
-            const res = await Filesystem.downloadFile({ url: dlUrl, path: dest, directory: destDir.directory, progress: true })
+            const res = await Filesystem.downloadFile({ url: dlUrl, path: dest, directory: destDir.directory, progress: true, headers: dlHeaders(job) })
             if (job.status === 'cancelled') throw new DOMException('Aborted', 'AbortError')
             if (!res?.path && !res) throw new Error('Download failed')
             try {
@@ -135,10 +142,6 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
           } finally {
             try { await listener?.remove() } catch {}
           }
-        }
-
-        {
-
         let ok = false
         let lastErr
         for (const c of candidates) {
@@ -188,7 +191,7 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
         }
       } else {
         const doWeb = async (dlUrl) => {
-          const res = await fetch(dlUrl, { signal: ctrl.signal })
+          const res = await fetch(dlUrl, { signal: ctrl.signal, headers: dlHeaders(job), credentials: 'omit' })
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
           const total = Number(res.headers.get('content-length') || 0)
           if (res.body && total) {
