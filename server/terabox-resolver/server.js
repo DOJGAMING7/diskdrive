@@ -86,7 +86,10 @@ const server = http.createServer(async (req, res) => {
       for (const h of pass) { const v = upstream.headers.get(h); if (v) outHeaders[h] = v; }
       if (!outHeaders["accept-ranges"]) outHeaders["accept-ranges"] = "bytes";
       const name = String(url.searchParams.get("name") || "").trim();
-      if (name) outHeaders["content-disposition"] = `inline; filename*=UTF-8''${encodeURIComponent(name)}`;
+      if (name) {
+        const disp = url.searchParams.get("download") === "1" ? "attachment" : "inline";
+        outHeaders["content-disposition"] = `${disp}; filename*=UTF-8''${encodeURIComponent(name)}`;
+      }
       res.writeHead(upstream.status, outHeaders);
       if (!upstream.body) return res.end();
       Readable.fromWeb(upstream.body).pipe(res);
@@ -118,7 +121,7 @@ const server = http.createServer(async (req, res) => {
       if (result.directUrl) {
         const prox = `${base}/stream?url=${encodeURIComponent(result.directUrl)}&name=${encodeURIComponent(result.name || "video")}${key}`;
         result.proxyStreamUrl = prox;
-        result.proxyDownloadUrl = prox;
+        result.proxyDownloadUrl = `${prox}&download=1`;
         result.streamUrl = prox;
       }
       return json(res, 200, { ok: true, ...result }, origin);

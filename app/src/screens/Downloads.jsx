@@ -5,7 +5,7 @@ import { importLocalFile, deleteNativeFile } from '../lib/files.js'
 import { saveToPhone as exportToPhone } from '../lib/export.js'
 import { makeZip } from '../lib/zip.js'
 
-export default function Downloads({ state, save, showToast, openPlayer, setMenu, setConfirm, downloadJobs=[], enqueueDownload, cancelDownload, clearDoneDownloads }) {
+export default function Downloads({ state, save, showToast, openPlayer, setMenu, setConfirm, downloadJobs=[], enqueueDownload, cancelDownload, removeDownloadJob, clearDoneDownloads }) {
   const [q, setQ] = useState('')
   const [provider, setProvider] = useState('ALL')
   const fileRef = useRef()
@@ -88,8 +88,9 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
               {['queued','downloading','resolving'].includes(job.status) && <button className="btn ghost" style={{padding:'6px 10px',minHeight:32}} onClick={()=>cancelDownload?.(job.id)}>Cancel</button>}
               <button className="iconbtn" onClick={()=>setMenu({ title: job.title||job.name, items:[
                 ...(['queued','downloading','resolving'].includes(job.status) ? [{label:'Stop download', danger:true, onClick:()=>cancelDownload?.(job.id)}] : []),
-                ...(job.status==='error' ? [{label:'Retry', onClick:()=>enqueueDownload?.(job)}] : []),
+                ...((job.status==='error' || job.status==='cancelled' || job.status==='done') ? [{label:'Retry download', onClick:()=>enqueueDownload?.(job)}] : []),
                 {label:'Copy source link', onClick:async()=>{ try{ await navigator.clipboard.writeText(job.sourceUrl||job.src||''); showToast('Copied') }catch{ showToast('Copy failed') } }},
+                {label:'Remove from queue', danger:true, onClick:()=>removeDownloadJob?.(job.id)},
               ]})}><I.dots/></button>
             </div>
           </div>

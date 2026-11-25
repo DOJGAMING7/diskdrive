@@ -241,6 +241,7 @@ export default function App() {
     return res
   }
   const cancelDownload = (id) => { downloadMgr.current?.cancel(id); showToast('Download cancelled') }
+  const removeDownloadJob = (id) => { downloadMgr.current?.remove(id); showToast('Download removed') }
   const clearDoneDownloads = () => { downloadMgr.current?.clearDone() }
   const getActiveDownload = (item) => downloadMgr.current?.getActiveForItem(item) || null
 
@@ -276,7 +277,7 @@ export default function App() {
     </div>
 
     {tab==='home' && <Home state={state} save={save} showToast={showToast} openPlayer={openPlayer} setTab={setTab} addDownload={addDownload} enqueueDownload={enqueueDownload} cancelDownload={cancelDownload} downloadJobs={downloadJobs} resolveState={resolveState} setResolveState={setResolveState} />}
-    {tab==='download' && <Downloads state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} downloadJobs={downloadJobs} enqueueDownload={enqueueDownload} cancelDownload={cancelDownload} clearDoneDownloads={clearDoneDownloads} />}
+    {tab==='download' && <Downloads state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} downloadJobs={downloadJobs} enqueueDownload={enqueueDownload} cancelDownload={cancelDownload} removeDownloadJob={removeDownloadJob} clearDoneDownloads={clearDoneDownloads} />}
     {tab==='history' && <HistoryScreen state={state} save={save} showToast={showToast} openPlayer={openPlayer} setConfirm={setConfirm} />}
     {tab==='playlist' && <PlaylistScreen state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} />}
     {tab==='settings' && <SettingsScreen state={state} save={save} showToast={showToast} onLock={()=>{ if(state.pinEnabled && state.pinHash) setLocked(true); else showToast('Enable PIN lock first') }} bundleStatus={bundleStatus} setBundleStatus={setBundleStatus} />}

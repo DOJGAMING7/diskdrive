@@ -33,7 +33,8 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
     controllers.set(job.id, ctrl)
     try {
       const name = sanitize(job.fileName || job.name || 'video.mp4')
-      let url = job.proxyDownloadUrl || job.downloadUrl || job.proxyStreamUrl || job.directUrl || job.src
+      const candidates = [job.proxyDownloadUrl, job.downloadUrl, job.proxyStreamUrl, job.directUrl, job.src].filter(Boolean)
+      let url = candidates[0]
       if (!url) throw new Error('No download URL')
 
       if (Capacitor.isNativePlatform()) {
@@ -51,22 +52,23 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
           } finally { try { await listener?.remove() } catch {} }
         }
         let ok = false
-        try { ok = await tryNative(url) } catch (e) {
-          // if expired/forbidden and we can re-resolve, retry once
-          if (resolveItem && job.sourceUrl) {
-            job.status = 'resolving'; job.error = ''; emit()
+        let lastErr
+        for (const c of candidates) {
+          try { ok = await tryNative(c); if (ok) { url = c; break } } catch (e) { lastErr = e }
+          if (job.status === 'cancelled') throw new DOMException('Aborted','AbortError')
+        }
+        if (!ok && resolveItem && job.sourceUrl) {
+          job.status = 'resolving'; job.error = ''; emit()
+          try {
             const fresh = await resolveItem(job)
-            url = fresh.proxyDownloadUrl || fresh.downloadUrl || fresh.proxyStreamUrl || fresh.directUrl || fresh.src || url
-            job.downloadUrl = fresh.downloadUrl || job.downloadUrl
-            job.directUrl = fresh.directUrl || job.directUrl
-            job.proxyDownloadUrl = fresh.proxyDownloadUrl || job.proxyDownloadUrl
-            job.src = fresh.src || job.src
+            const next = [fresh.proxyDownloadUrl, fresh.downloadUrl, fresh.proxyStreamUrl, fresh.directUrl, fresh.src].filter(Boolean)
+            job.downloadUrl = fresh.downloadUrl || job.downloadUrl; job.directUrl = fresh.directUrl || job.directUrl; job.proxyDownloadUrl = fresh.proxyDownloadUrl || job.proxyDownloadUrl; job.src = fresh.src || job.src
             job.status = 'downloading'; emit()
-            ok = await tryNative(url)
-          } else { throw e }
+            for (const c of next) { try { ok = await tryNative(c); if (ok) { url=c; break } } catch (e) { lastErr = e } }
+          } catch (e) { lastErr = e }
         }
         if (job.status === 'cancelled') throw new DOMException('Aborted','AbortError')
-        if (!ok) throw new Error('Download failed')
+        if (!ok) throw lastErr || new Error('Download failed')
         job.progress = 100; job.status = 'done'; job.savedPath = dest; job.savedDirectory = String(destDir.directory)
         try {
           const uri = await Filesystem.getUri({ path: dest, directory: destDir.directory })
@@ -99,16 +101,21 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
           return await res.blob()
         }
         let blob
-        try { blob = await doWeb(url) } catch (e) {
-          if (resolveItem && job.sourceUrl) {
+        let lastErr
+        for (const c of candidates) {
+          try { blob = await doWeb(c); url = c; break } catch (e) { lastErr = e }
+        }
+        if (!blob && resolveItem && job.sourceUrl) {
+          try {
             job.status = 'resolving'; emit()
             const fresh = await resolveItem(job)
-            url = fresh.proxyDownloadUrl || fresh.downloadUrl || fresh.proxyStreamUrl || fresh.directUrl || fresh.src || url
+            const next = [fresh.proxyDownloadUrl, fresh.downloadUrl, fresh.proxyStreamUrl, fresh.directUrl, fresh.src].filter(Boolean)
             job.downloadUrl = fresh.downloadUrl || job.downloadUrl; job.directUrl = fresh.directUrl || job.directUrl; job.proxyDownloadUrl = fresh.proxyDownloadUrl || job.proxyDownloadUrl; job.src = fresh.src || job.src
             job.status = 'downloading'; emit()
-            blob = await doWeb(url)
-          } else throw e
+            for (const c of next) { try { blob = await doWeb(c); url = c; break } catch (e) { lastErr = e } }
+          } catch (e) { lastErr = e }
         }
+        if (!blob) throw lastErr || new Error('Download failed')
         const blobUrl = URL.createObjectURL(blob)
         triggerBlobDownloadBlobUrl(blobUrl, name)
         job.progress = 100; job.status = 'done'; job.savedPath = name; job.srcLocal = blobUrl; job.stored = 'web-download'; job.kind = 'local' 
@@ -117,7 +124,8 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
       if (e?.name === 'AbortError' || job.status === 'cancelled') {
         job.status = 'cancelled'; job.error = ''
       } else {
-        job.status = 'error'; job.error = String(e?.message || e).slice(0, 200)
+        const msg = String(e?.message || e || 'Download failed')
+        job.status = 'error'; job.error = msg.includes('Failed to fetch') ? 'Failed to fetch (network/CORS). Try Check update, Restart app, or use resolver proxy.' : msg.slice(0, 200)
       }
     }
     controllers.delete(job.id)
@@ -161,6 +169,12 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
     getActiveForItem(item) {
       const k = keyFor(item)
       return [...jobs.values()].find(j => isActive(j) && keyFor(j) === k) || null
+    },
+    remove(id) {
+      const job = jobs.get(id)
+      if (!job) return
+      if (isActive(job)) { this.cancel(id) }
+      jobs.delete(id); controllers.delete(id); emit()
     },
     clearDone() { for (const [id,j] of jobs) if (['done','error','cancelled'].includes(j.status)) jobs.delete(id); emit() },
   }
