@@ -21,6 +21,7 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
   const [link, setLink] = useState('')
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState({ active:false, total:0, done:0, current:'', errors:[] })
+  const [resolvedItems, setResolvedItems] = useState([])
   const fileRef = useRef()
 
   const onResolve = async () => {
@@ -68,9 +69,13 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
     setProgress({ active:false, total: terabox.length, done: terabox.length, current:'Done', errors })
     setBusy(false)
 
+    setResolvedItems(resolved)
     if (resolved.length) {
-      openPlayer(resolved[0], resolved)
-      showToast(resolved.length > 1 ? `${resolved.length} Terabox videos ready` : 'Terabox video ready')
+      if (resolved.length > 1) {
+        showToast(`${resolved.length} Terabox videos ready`)
+      } else {
+        showToast('Terabox video ready')
+      }
     } else {
       showToast(errors[0] || 'Could not resolve Terabox link')
     }
@@ -86,6 +91,32 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
       await save({ downloads })
       openPlayer(media, [media])
     } catch { showToast('Could not open file') }
+  }
+
+  const downloadOne = async (item) => {
+    const url = item.downloadUrl || item.directUrl || item.src
+    if (!url) return showToast('No download URL')
+    try {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = item.name || 'video.mp4'
+      a.target = '_blank'
+      a.rel = 'noopener noreferrer'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    } catch {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }
+  }
+
+  const downloadAll = async () => {
+    if (!resolvedItems.length) return
+    showToast(`Starting ${resolvedItems.length} downloads`)
+    for (const item of resolvedItems) {
+      await downloadOne(item)
+      await new Promise(r => setTimeout(r, 350))
+    }
   }
 
   const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0
@@ -115,6 +146,28 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
         {progress.errors?.length > 0 && <div style={{ marginTop: 10, fontSize: 12, color: '#ddd', whiteSpace: 'pre-wrap' }}>{progress.errors.slice(-3).join('\n')}</div>}
       </div>}
     </div>
+
+    {resolvedItems.length > 0 && <div className="card">
+      <div className="section-title">{resolvedItems.length > 1 ? `Playlist ready (${resolvedItems.length})` : 'File ready'}</div>
+      <p className="small" style={{marginTop:0}}>{resolvedItems.length > 1 ? 'Play all in DiskDrive player, or download files one by one.' : 'Choose how you want to open or download this file.'}</p>
+      <div className="row" style={{marginBottom:12}}>
+        {resolvedItems.length > 1 ? <button className="btn" onClick={()=>openPlayer(resolvedItems[0], resolvedItems)}>Play playlist</button> : <button className="btn" onClick={()=>openPlayer(resolvedItems[0], resolvedItems)}>View in player</button>}
+        {resolvedItems.length === 1 && <button className="btn ghost" onClick={()=>window.open(resolvedItems[0].directUrl || resolvedItems[0].src, '_blank', 'noopener,noreferrer')}>Open in other player</button>}
+        {resolvedItems.length === 1 ? <button className="btn ghost" onClick={()=>downloadOne(resolvedItems[0])}>Download</button> : <button className="btn ghost" onClick={downloadAll}>Download all (single files)</button>}
+      </div>
+      <div className="list">
+        {resolvedItems.map((item, i) => <div className="item" key={item.id || i}>
+          <div className="meta">
+            <div className="title" style={{whiteSpace:'normal'}}>{item.title || item.name}</div>
+            <div className="sub">{item.sizeHuman || ''}{item.date ? ` • ${item.date}` : ''}</div>
+          </div>
+          {resolvedItems.length > 1 && <div className="row" style={{gap:8}}>
+            <button className="btn ghost" onClick={()=>openPlayer(item, resolvedItems)}>Play</button>
+            <button className="btn ghost" onClick={()=>downloadOne(item)}>Download</button>
+          </div>}
+        </div>)}
+      </div>
+    </div>}
 
     <div className="card">
       <div className="section-title">Local video</div>

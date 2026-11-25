@@ -18,12 +18,16 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect }
   const [fs, setFs] = useState(false)
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(true)
+  const [useDirect, setUseDirect] = useState(false)
   const idx = Math.max(0, queue.findIndex(q => q.id===item.id || (q.src && q.src===item.src)))
+
+  useEffect(() => { setUseDirect(false) }, [item?.id, item?.src, item?.directUrl])
 
   useEffect(() => {
     const v = videoRef.current; if (!v) return
     setErr(''); setLoading(true); setPlaying(false); setCurrentTime(0); setDuration(0); setBuffered(0)
-    v.src = item.src
+    const chosen = (useDirect && item.directUrl) ? item.directUrl : item.src
+    v.src = chosen
     v.load()
     const onLoaded = () => { setDuration(v.duration||0); setLoading(false); if (item.position && item.position < (v.duration||99999)-3) v.currentTime = item.position; v.play().then(()=>setPlaying(true)).catch(()=>{}) }
     const onTime = () => { setCurrentTime(v.currentTime||0); onProgress?.(item.src, v.currentTime||0, v.duration||0); if (v.buffered?.length) { const end=v.buffered.end(v.buffered.length-1); setBuffered(v.duration? (end/v.duration)*100:0) } }
@@ -32,7 +36,15 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect }
     const onWait = () => setLoading(true)
     const onCan = () => setLoading(false)
     const onEnd = () => { setPlaying(false); if (queue[idx+1]) onSelect(queue[idx+1]) }
-    const onErr = () => { setLoading(false); setErr('Cannot play this video file.') }
+    const onErr = () => {
+      setLoading(false)
+      if (!useDirect && item.directUrl && item.directUrl !== v.src) {
+        setErr('Proxy playback failed. Trying direct link…')
+        setUseDirect(true)
+        return
+      }
+      setErr('Cannot play this video file. Try Open in other player or Download.')
+    }
     v.addEventListener('loadedmetadata', onLoaded)
     v.addEventListener('timeupdate', onTime)
     v.addEventListener('play', onPlay)
@@ -42,7 +54,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect }
     v.addEventListener('ended', onEnd)
     v.addEventListener('error', onErr)
     return () => { v.pause(); v.removeEventListener('loadedmetadata', onLoaded); v.removeEventListener('timeupdate', onTime); v.removeEventListener('play', onPlay); v.removeEventListener('pause', onPause); v.removeEventListener('waiting', onWait); v.removeEventListener('canplay', onCan); v.removeEventListener('ended', onEnd); v.removeEventListener('error', onErr) }
-  }, [item?.src])
+  }, [item?.src, item?.directUrl, useDirect])
 
   useEffect(() => { const v=videoRef.current; if(v) v.playbackRate = hold2x ? 2 : speed }, [speed, hold2x])
   useEffect(() => { const onFs=()=> setFs(!!document.fullscreenElement); document.addEventListener('fullscreenchange', onFs); return ()=>document.removeEventListener('fullscreenchange', onFs) }, [])
@@ -106,7 +118,13 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect }
       </div>
 
       <div style={{pointerEvents: lockedUI?'none':'auto',opacity: lockedUI?.35:1}}>
-        {err && <div style={{marginBottom:10,fontSize:13}}>{err}</div>}
+        {err && <div style={{marginBottom:10,fontSize:13}}>
+          <div>{err}</div>
+          <div className="row" style={{marginTop:8}}>
+            {(item.directUrl || item.src) && <button className="btn ghost" onClick={()=>window.open(item.directUrl || item.src, '_blank', 'noopener,noreferrer')}>Open in other player</button>}
+            {(item.downloadUrl || item.directUrl || item.src) && <a className="btn ghost" href={item.downloadUrl || item.directUrl || item.src} target="_blank" rel="noopener noreferrer" download={item.name||'video.mp4'}>Download</a>}
+          </div>
+        </div>}
         {loading && !err && <div style={{marginBottom:10,fontSize:13}}>Loading…</div>}
         <div style={{height:28,display:'flex',alignItems:'center',cursor:'pointer'}} onClick={seekTo}>
           <div style={{position:'relative',width:'100%',height:4,background:'rgba(255,255,255,.2)',borderRadius:999}}>

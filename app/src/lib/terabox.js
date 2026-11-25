@@ -42,15 +42,19 @@ export async function resolveTeraboxLink(url, { resolverUrl, resolverKey } = {})
   }
   if (data.ok === false) throw new Error(data.message || data.error || 'Resolve failed')
 
-  const directUrl = String(data.directUrl || data.streamUrl || '').trim()
-  if (!directUrl) throw new Error(data.message || 'No direct video link found for this Terabox share.')
+  const directUrl = String(data.directUrl || data.downloadUrl || '').trim()
+  const proxyStreamUrl = String(data.proxyStreamUrl || data.streamUrl || '').trim()
+  const streamUrl = proxyStreamUrl || directUrl
+  if (!streamUrl) throw new Error(data.message || 'No direct video link found for this Terabox share.')
 
   return {
     provider: 'TERABOX',
     kind: 'remote',
     title: String(data.name || data.title || 'Terabox video').replace(/\.[^.]+$/, ''),
     name: String(data.name || data.title || 'Terabox video'),
-    src: directUrl,
+    src: streamUrl,
+    directUrl,
+    downloadUrl: String(data.proxyDownloadUrl || directUrl || streamUrl).trim(),
     sourceUrl: String(data.sourceUrl || input),
     size: Number(data.size || 0) || 0,
     sizeHuman: String(data.sizeHuman || ''),
