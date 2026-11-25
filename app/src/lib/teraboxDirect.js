@@ -1,6 +1,23 @@
 import { withTimeout } from './async.js'
+import { Capacitor, CapacitorHttp } from '@capacitor/core'
 
 const UA = 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
+
+async function httpRequest(url, { method='GET', headers={}, body, redirect='follow' } = {}) {
+  if (Capacitor?.isNativePlatform?.()) {
+    try {
+      const opts = { url, method, headers, connectTimeout: 30000, readTimeout: 30000 }
+      if (body !== undefined) opts.data = body
+      const res = await withTimeout(CapacitorHttp.request(opts), 30000, 'Terabox request')
+      const data = res?.data
+      const text = typeof data === 'string' ? data : JSON.stringify(data ?? '')
+      return { status: res?.status || 0, text, json: () => { try { return typeof data === 'string' ? JSON.parse(data) : data } catch { return null } } }
+    } catch {}
+  }
+  const res = await withTimeout(fetch(url, { method, headers, body, redirect, credentials: 'omit' }), 30000, 'Terabox request')
+  const text = await res.text()
+  return { status: res.status, text, json: () => { try { return JSON.parse(text) } catch { return null } } }
+}
 
 const TERABOX_HOSTS = new Set([
   'terabox.com','www.terabox.com','terabox.app','www.terabox.app',
@@ -23,9 +40,12 @@ export function extractTeraboxLinks(text='') {
 export function normalizeTeraboxCookie(input='') {
   const raw = String(input || '').trim()
   if (!raw) return ''
-  if (/ndus=/i.test(raw) || /;/ .test(raw) || /=/.test(raw)) return raw
-  // assume plain ndus value
-  return `ndus=${raw}`
+  let cookie = ''
+  if (/ndus=/i.test(raw) || /;/.test(raw) || /=/.test(raw)) cookie = raw
+  else cookie = `ndus=${raw}`
+  // Terabox web endpoints are happier with lang cookie present
+  if (!/(^|;\s*)lang=/i.test(cookie)) cookie = `lang=en; ${cookie}`
+  return cookie
 }
 
 function parseSurl(url) {
@@ -94,9 +114,10 @@ function mapResult(file, sourceUrl, note='') {
 }
 
 async function fetchJson(url, opts={}) {
-  const res = await withTimeout(fetch(url, opts), 30000, 'Terabox request')
-  const text = await res.text()
-  try { return JSON.parse(text) } catch { return { _nonJson: true, _status: res.status, _text: text.slice(0, 160) } }
+  const res = await httpRequest(url, opts)
+  const data = res.json()
+  if (data && typeof data === 'object') return data
+  try { return JSON.parse(res.text) } catch { return { _nonJson: true, _status: res.status, _text: String(res.text||'').slice(0, 160) } }
 }
 
 function buildHeaders(cookie, referer='https://www.terabox.com/') {
@@ -109,33 +130,47 @@ function buildHeaders(cookie, referer='https://www.terabox.com/') {
   return h
 }
 
-async function getSharePageInfo(shareUrl, cookie) {
-  const res = await withTimeout(fetch(shareUrl, { headers: buildHeaders(cookie), redirect: 'follow' }), 30000, 'Terabox share page')
-  const text = await res.text()
-  const pick = (re) => { const m = text.match(re); return m ? m[1] : '' }
+function parseShareInfo(text='') {
+  const pick = (re) => { const m = String(text||'').match(re); return m ? m[1] : '' }
+  const jsonPick = (key) => pick(new RegExp(`"${key}"\\s*:\\s*"?([\\w\\-+=/]+)"?`))
   return {
-    jsToken: pick(/fn\("([a-fA-F0-9]+)"\)/) || pick(/"jsToken"\s*:\s*"([^"]+)"/) || pick(/fn%28%22(.*?)%22%29/) || '',
-    sign: pick(/"sign"\s*:\s*"([^"]+)"/),
-    timestamp: pick(/"timestamp"\s*:\s*"?(\d+)"?/),
-    shareid: pick(/"shareid"\s*:\s*"?(\d+)"?/),
-    uk: pick(/"uk"\s*:\s*"?(\d+)"?/),
+    jsToken: pick(/fn\("([a-fA-F0-9]+)"\)/) || jsonPick('jsToken') || pick(/fn%28%22(.*?)%22%29/) || '',
+    sign: jsonPick('sign') || pick(/"sign"\s*:\s*"([^"]+)"/),
+    timestamp: pick(/"timestamp"\s*:\s*"?(\d+)"?/) || jsonPick('timestamp'),
+    shareid: pick(/"shareid"\s*:\s*"?(\d+)"?/) || jsonPick('shareid'),
+    uk: pick(/"uk"\s*:\s*"?(\d+)"?/) || jsonPick('uk'),
     seckey: pick(/"seckey"\s*:\s*"([^"]+)"/),
   }
+}
+
+async function getSharePageInfo(shareUrl, cookie) {
+  const urls = [shareUrl, shareUrl.replace('://www.', '://'), shareUrl.replace('://1024terabox.com', '://www.terabox.com').replace('://terabox.com', '://www.terabox.com')]
+  let out = { jsToken:'', sign:'', timestamp:'', shareid:'', uk:'', seckey:'' }
+  for (const u of [...new Set(urls)]) {
+    try {
+      const res = await httpRequest(u, { headers: buildHeaders(cookie, 'https://www.terabox.com/'), redirect: 'follow' })
+      out = { ...out, ...Object.fromEntries(Object.entries(parseShareInfo(res.text)).filter(([,v]) => v)) }
+      if (out.sign && out.timestamp && out.shareid && out.uk) break
+    } catch {}
+  }
+  return out
 }
 
 async function verifyShare(surl, pwd, cookie, host='www.terabox.com') {
   if (!pwd) return
   const params = new URLSearchParams({ app_id: '250528', surl: `1${String(surl).replace(/^1/, '')}`, pwd })
-  await withTimeout(fetch(`https://${host}/share/verify?${params}`, { headers: buildHeaders(cookie, `https://${host}/`) }), 20000, 'Terabox verify').catch(() => {})
+  await httpRequest(`https://${host}/share/verify?${params}`, { headers: buildHeaders(cookie, `https://${host}/`) }).catch(() => {})
 }
 
 async function listShareRaw(surl, jsToken, cookie, dir=null, host='www.terabox.com') {
+  const shorturl = String(surl).replace(/^1/, '')
   const params = new URLSearchParams({
     app_id: '250528', web: '1', channel: 'dubox', clienttype: '0',
-    jsToken: jsToken || '', shorturl: String(surl).replace(/^1/, ''), page: '1', num: '1000', by: 'name', order: 'asc',
+    jsToken: jsToken || '', shorturl, page: '1', num: '1000', by: 'name', order: 'asc',
+    site_referer: `https://${host}/sharing/link?surl=${shorturl}`,
   })
   if (dir) params.set('dir', dir); else params.set('root', '1')
-  return fetchJson(`https://${host}/share/list?${params}`, { headers: buildHeaders(cookie, `https://${host}/`) })
+  return fetchJson(`https://${host}/share/list?${params}`, { headers: buildHeaders(cookie, `https://${host}/sharing/link?surl=${shorturl}`) })
 }
 
 async function collectFiles(surl, jsToken, cookie, entries, host='www.terabox.com') {
@@ -187,8 +222,13 @@ async function resolveViaShareApi(url, cookie) {
   for (const cand of candidates) {
     try {
       await verifyShare(cand, pwd, cookie, 'www.terabox.com')
-      const data = await listShareRaw(cand, info.jsToken, cookie, null, 'www.terabox.com')
-      const errno = Number(data?.errno)
+      let data = await listShareRaw(cand, info.jsToken, cookie, null, 'www.terabox.com')
+      let errno = Number(data?.errno)
+      if (errno !== 0) {
+        // retry with alternate params/host; errno=2 often means param mismatch, not bad cookie
+        const alt = await fetchJson(`https://www.terabox.com/share/list?${new URLSearchParams({ app_id:'250528', web:'1', channel:'dubox', clienttype:'0', jsToken:'', shorturl:String(cand).replace(/^1/,''), root:'1', page:'1', num:'1000', by:'name', order:'asc' })}`, { headers: buildHeaders(cookie, `https://www.terabox.com/sharing/link?surl=${String(cand).replace(/^1/, '')}`) }).catch(()=>null)
+        if (alt && Number(alt.errno) === 0) { data = alt; errno = 0 }
+      }
       if (errno !== 0) { errs.push(`list:${cand}:errno=${errno}`); if (isCookieError(errno)) throw new Error(`Terabox cookie/auth failed (errno=${errno}). Update NDUS in Settings.`); continue }
       const files = await collectFiles(cand, info.jsToken, cookie, Array.isArray(data?.list) ? data.list : [], 'www.terabox.com')
       const file = files[0]
@@ -227,8 +267,8 @@ async function resolveViaDm(url, cookie) {
   for (const { host, origin } of hosts) {
     for (const shorturl of candidates) {
       try {
-        const page = await withTimeout(fetch(`https://${host}/sharing/link?surl=${shorturl.replace(/^1/, '')}`, { headers: buildHeaders(cookie, `${origin}/`) }), 30000, 'Terabox dm page')
-        const text = await page.text()
+        const page = await httpRequest(`https://${host}/sharing/link?surl=${shorturl.replace(/^1/, '')}`, { headers: buildHeaders(cookie, `${origin}/`) })
+        const text = String(page.text || '')
         let jsToken = info.jsToken || ''
         let m = text.match(/fn%28%22(.*?)%22%29/); if (m) jsToken = m[1]
         if (!jsToken) { m = text.match(/fn\("([a-fA-F0-9]+)"\)/); if (m) jsToken = m[1] }
@@ -263,6 +303,27 @@ async function resolveViaDm(url, cookie) {
   throw new Error(errs.join('; ') || 'dm failed')
 }
 
+export async function resolveViaPublicProxy(url) {
+  const { candidates } = parseSurl(url)
+  const errs = []
+  for (const s of candidates) {
+    try {
+      const params = new URLSearchParams({ mode: 'resolve', surl: s.replace(/^1/, ''), raw: '1' })
+      const data = await fetchJson(`https://tbx-proxy.shakir-ansarii075.workers.dev/?${params}`, { headers: { 'User-Agent': UA } })
+      const upstream = data?.upstream || data
+      const list = Array.isArray(upstream?.list) ? upstream.list : Array.isArray(upstream?.data?.list) ? upstream.data.list : []
+      const flat = []
+      const walk = (items) => { for (const it of items || []) { if (String(it?.isdir) === '1') walk(it?.children || it?.list || []) ; else flat.push(it) } }
+      walk(list)
+      const file = flat[0]
+      const dlink = String(file?.dlink || file?.direct_link || file?.directLink || '').trim()
+      if (dlink) return mapResult({ ...file, dlink }, url, 'Resolved via public proxy fallback')
+      errs.push(`proxy:${s}:no-dlink`)
+    } catch (e) { errs.push(`proxy:${String(e?.message||e).slice(0,60)}`) }
+  }
+  throw new Error(errs.join('; ') || 'proxy failed')
+}
+
 export async function resolveTeraboxDirect(url, { cookie='', ndus='' } = {}) {
   const input = String(url || '').trim()
   if (!isTeraboxUrl(input)) throw new Error('Not a valid Terabox link.')
@@ -275,7 +336,7 @@ export async function resolveTeraboxDirect(url, { cookie='', ndus='' } = {}) {
     if (r?.directUrl) return r
     debug.push('share:no-dlink')
   } catch (e) {
-    debug.push(`share:${String(e?.message || e).slice(0, 140)}`)
+    debug.push(`share:${String(e?.message || e).slice(0, 160)}`)
     if (isCookieError(0, e?.message)) throw e
   }
 
@@ -284,9 +345,21 @@ export async function resolveTeraboxDirect(url, { cookie='', ndus='' } = {}) {
     if (r?.directUrl) return r
     debug.push('dm:no-dlink')
   } catch (e) {
-    debug.push(`dm:${String(e?.message || e).slice(0, 140)}`)
+    debug.push(`dm:${String(e?.message || e).slice(0, 160)}`)
     if (isCookieError(0, e?.message)) throw e
   }
 
+  try {
+    const r = await resolveViaPublicProxy(input)
+    if (r?.directUrl) return r
+    debug.push('proxy:no-dlink')
+  } catch (e) {
+    debug.push(`proxy:${String(e?.message || e).slice(0, 120)}`)
+  }
+
+  const hasCookieErr = debug.some(d => /errno=(?:-6|-1|4|5|112)\b/i.test(d))
+  if (hasCookieErr) throw new Error(`Terabox cookie/auth failed. Update NDUS in Settings. ${debug.join(' | ').slice(0,240)}`)
+  const hasParamErr = debug.some(d => /errno=2\b/i.test(d))
+  if (hasParamErr) throw new Error(`Terabox resolve failed (errno=2 param/auth). Cookie may be invalid/expired or Terabox blocked this request. Re-copy NDUS from browser and retry. ${debug.join(' | ').slice(0,240)}`)
   throw new Error(`Could not resolve direct Terabox link. ${debug.join(' | ').slice(0, 300)}`)
 }
