@@ -32,7 +32,7 @@ jobs:
           test -f dist/index.html
           grep -q 'id="boot"' dist/index.html
           grep -q '__diskdriveShowError' dist/index.html
-          node -e "const fs=require('fs');const html=fs.readFileSync('dist/index.html','utf8');const m=html.match(/src=\"\.\/assets\/(index-[^"]+\.js)\"/);if(!m)throw new Error('bundle script not found');require('child_process').execSync('node --check dist/assets/'+m[1],{stdio:'inherit'});"
+          node --check dist/assets/index-*.js
           ls -la dist
       - name: Sync Capacitor
         working-directory: app
