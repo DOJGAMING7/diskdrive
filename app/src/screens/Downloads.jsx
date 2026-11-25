@@ -5,7 +5,7 @@ import { importLocalFile, deleteNativeFile } from '../lib/files.js'
 import { saveToPhone as exportToPhone } from '../lib/export.js'
 import { makeZip } from '../lib/zip.js'
 
-export default function Downloads({ state, save, showToast, openPlayer, setMenu, setConfirm, downloadJobs=[], enqueueDownload }) {
+export default function Downloads({ state, save, showToast, openPlayer, setMenu, setConfirm, downloadJobs=[], enqueueDownload, cancelDownload, clearDoneDownloads }) {
   const [q, setQ] = useState('')
   const [provider, setProvider] = useState('ALL')
   const fileRef = useRef()
@@ -78,15 +78,23 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
     </div>
 
     {downloadJobs.length > 0 && <div className="card">
-      <div className="section-title">Download queue</div>
+      <div className="section-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span>Download queue</span>{downloadJobs.some(j=>['done','error','cancelled'].includes(j.status)) && <button className="btn ghost" style={{padding:'4px 10px',minHeight:30,fontSize:12}} onClick={()=>clearDoneDownloads?.()}>Clear</button>}</div>
       <div className="list">
         {downloadJobs.slice().reverse().map(job => <div className="item" key={job.id} style={{flexDirection:'column',alignItems:'stretch'}}>
-          <div style={{display:'flex',justifyContent:'space-between',gap:8}}>
-            <div style={{minWidth:0}}><div className="title" style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{job.title||job.name}</div><div className="sub">{job.status} {job.progress?`• ${job.progress}%`:''} {job.error?`• ${job.error}`:''}</div></div>
-            <div className="sub">{job.savedPath ? 'Saved' : ''}</div>
+          <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center'}}>
+            <div style={{minWidth:0,flex:1}}><div className="title" style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{job.title||job.name}</div><div className="sub">{job.status} {job.progress?`• ${job.progress}%`:''} {job.error?`• ${job.error}`:''}</div></div>
+            <div className="row" style={{gap:6,flex:'0 0 auto'}}>
+              {job.savedPath && <div className="sub">Saved</div>}
+              {['queued','downloading','resolving'].includes(job.status) && <button className="btn ghost" style={{padding:'6px 10px',minHeight:32}} onClick={()=>cancelDownload?.(job.id)}>Cancel</button>}
+              <button className="iconbtn" onClick={()=>setMenu({ title: job.title||job.name, items:[
+                ...(['queued','downloading','resolving'].includes(job.status) ? [{label:'Stop download', danger:true, onClick:()=>cancelDownload?.(job.id)}] : []),
+                ...(job.status==='error' ? [{label:'Retry', onClick:()=>enqueueDownload?.(job)}] : []),
+                {label:'Copy source link', onClick:async()=>{ try{ await navigator.clipboard.writeText(job.sourceUrl||job.src||''); showToast('Copied') }catch{ showToast('Copy failed') } }},
+              ]})}><I.dots/></button>
+            </div>
           </div>
           <div style={{height:8,background:'#111',border:'1px solid #2a2a2a',borderRadius:999,overflow:'hidden',marginTop:8}}>
-            <div style={{width:`${job.progress||0}%`,height:'100%',background:'#fff',transition:'width .2s'}} />
+            <div style={{width:`${job.progress||0}%`,height:'100%',background: job.status==='error'?'#a33':job.status==='cancelled'?'#666':'#fff',transition:'width .2s'}} />
           </div>
         </div>)}
       </div>

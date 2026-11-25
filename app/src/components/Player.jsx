@@ -3,7 +3,7 @@ import { fmtTime } from '../lib/store.js'
 
 import { resolveTeraboxLink } from '../lib/terabox.js'
 
-export default function Player({ item, queue=[], onClose, onProgress, onSelect, showToast, enqueueDownload, resolverUrl, resolverKey }) {
+export default function Player({ item, queue=[], onClose, onProgress, onSelect, showToast, enqueueDownload, cancelDownload, downloadJobs=[], resolverUrl, resolverKey }) {
   const wrapRef = useRef(null)
   const videoRef = useRef(null)
   const hideTimer = useRef(null)
@@ -30,6 +30,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
   const touchY = useRef(null)
   const seekingRef = useRef(false)
   const idx = Math.max(0, queue.findIndex(q => q.id===item.id || (q.src && q.src===item.src)))
+  const activeJob = (downloadJobs||[]).find(j => ['queued','downloading','resolving'].includes(j.status) && (j.sourceUrl===item.sourceUrl || j.src===item.src || j.itemId===item.id))
 
   useEffect(() => { setUseDirect(false) }, [item?.id, item?.src, item?.directUrl])
 
@@ -180,7 +181,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
           <div>{err}</div>
           <div className="row" style={{marginTop:8}}>
             {(item.proxyStreamUrl || item.proxyDownloadUrl || item.src) && <button className="btn ghost" onClick={()=>window.open(item.proxyStreamUrl || item.proxyDownloadUrl || item.src, '_blank', 'noopener,noreferrer')}>Open in other player</button>}
-            <button className="btn ghost" onClick={()=>{ if(enqueueDownload) enqueueDownload(item); else window.open(item.proxyDownloadUrl || item.downloadUrl || item.src, '_blank') }}>Download</button>
+            {activeJob ? <button className="btn ghost" onClick={()=>cancelDownload?.(activeJob.id)}>Cancel {activeJob.progress||0}%</button> : <button className="btn ghost" onClick={()=>{ if(enqueueDownload) enqueueDownload(item); else window.open(item.proxyDownloadUrl || item.downloadUrl || item.src, '_blank') }}>Download</button>}
             {item.sourceUrl && resolverUrl && <button className="btn ghost" onClick={async()=>{ try{ setLoading(true); setErr('Re-resolving...'); const fresh=await resolveTeraboxLink(item.sourceUrl,{resolverUrl,resolverKey}); setLoading(false); if(fresh?.src) onSelect({...item,...fresh}); }catch(e){ setLoading(false); setErr(String(e?.message||e)) } }}>Re-resolve</button>}
           </div>
         </div>}
@@ -210,7 +211,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
             </select>
             <button className="btn ghost" onClick={togglePiP}>PiP</button>
             <button className="btn ghost" onClick={()=>setShowInfo(v=>!v)}>Link</button>
-            <button className="btn ghost" onClick={()=>{ if(enqueueDownload) enqueueDownload(item); else window.open(item.downloadUrl||item.directUrl||item.src,'_blank') }}>Download</button>
+            {activeJob ? <button className="btn ghost" onClick={()=>cancelDownload?.(activeJob.id)}>{activeJob.status==='queued'?'Queued…':'Downloading…'} {activeJob.progress||0}% • Cancel</button> : <button className="btn ghost" onClick={()=>{ if(enqueueDownload) enqueueDownload(item); else window.open(item.downloadUrl||item.directUrl||item.src,'_blank') }}>Download</button>}
             {queue.length>1 && <button className="btn ghost" onClick={()=>setShowQueue(v=>!v)}>Queue</button>}
             {queue[idx-1] && <button className="btn ghost" onClick={()=>onSelect(queue[idx-1])}>Prev</button>}
             {queue[idx+1] && <button className="btn ghost" onClick={()=>onSelect(queue[idx+1])}>Next</button>}

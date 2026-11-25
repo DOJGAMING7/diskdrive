@@ -224,10 +224,21 @@ export default function App() {
 
   const enqueueDownload = (item) => {
     const dir = state?.settings?.downloadDir || 'Download'
-    if (!downloadMgr.current) { showToast('Download manager not ready'); return }
-    downloadMgr.current.enqueue(item, dir)
-    showToast('Download queued')
+    if (!downloadMgr.current) { showToast('Download manager not ready'); return null }
+    const res = downloadMgr.current.enqueue(item, dir)
+    if (res?.deduped) showToast(`Already in queue (${res.status})`)
+    else showToast('Download queued')
+    return res
   }
+  const cancelDownload = (id) => { downloadMgr.current?.cancel(id); showToast('Download cancelled') }
+  const clearDoneDownloads = () => { downloadMgr.current?.clearDone() }
+  const getActiveDownload = (item) => downloadMgr.current?.getActiveForItem(item) || null
+
+  useEffect(() => {
+    const h = () => clearDoneDownloads()
+    window.addEventListener('dd-clear-downloads', h)
+    return () => window.removeEventListener('dd-clear-downloads', h)
+  }, [])
 
   if (!ready) return <div className="overlay" style={{background:'#000',color:'#fff'}}><div className="panel" style={{background:'#0a0a0a',color:'#fff'}}><h2 style={{color:'#fff'}}>DISKDRIVE</h2><p style={{color:'#ddd'}}>{bootMsg}</p><div className="small" style={{marginTop:12,color:'#bbb'}}>If startup is stuck, wait a few seconds for the error screen.</div></div></div>
 
@@ -254,15 +265,15 @@ export default function App() {
       <div className="ver">DISKDRIVE V1</div>
     </div>
 
-    {tab==='home' && <Home state={state} save={save} showToast={showToast} openPlayer={openPlayer} setTab={setTab} addDownload={addDownload} enqueueDownload={enqueueDownload} resolveState={resolveState} setResolveState={setResolveState} />}
-    {tab==='download' && <Downloads state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} downloadJobs={downloadJobs} enqueueDownload={enqueueDownload} />}
+    {tab==='home' && <Home state={state} save={save} showToast={showToast} openPlayer={openPlayer} setTab={setTab} addDownload={addDownload} enqueueDownload={enqueueDownload} cancelDownload={cancelDownload} downloadJobs={downloadJobs} resolveState={resolveState} setResolveState={setResolveState} />}
+    {tab==='download' && <Downloads state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} downloadJobs={downloadJobs} enqueueDownload={enqueueDownload} cancelDownload={cancelDownload} clearDoneDownloads={clearDoneDownloads} />}
     {tab==='history' && <HistoryScreen state={state} save={save} showToast={showToast} openPlayer={openPlayer} setConfirm={setConfirm} />}
     {tab==='playlist' && <PlaylistScreen state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} />}
     {tab==='settings' && <SettingsScreen state={state} save={save} showToast={showToast} onLock={()=>{ if(state.pinEnabled && state.pinHash) setLocked(true); else showToast('Enable PIN lock first') }} bundleStatus={bundleStatus} setBundleStatus={setBundleStatus} />}
 
     <nav className="bottom-nav"><div className="nav-inner">{TABS.map(t=>{ const Icon=t.icon; return <button key={t.id} className={`navbtn ${tab===t.id?'active':''}`} onClick={()=>setTab(t.id)}><Icon/><span>{t.label}</span></button> })}</div></nav>
 
-    {playerItem && <Player item={playerItem} queue={playerQueue} onClose={()=>setPlayerItem(null)} onProgress={(src,pos,dur)=>updateHistoryPos(src,pos,dur)} onSelect={(it)=>{ setPlayerItem(it); updateHistoryPos(it.src, it.position||0, it.duration||0) }} showToast={showToast} enqueueDownload={enqueueDownload} resolverUrl={state.settings?.resolverUrl||''} resolverKey={state.settings?.resolverKey||''} />}
+    {playerItem && <Player item={playerItem} queue={playerQueue} onClose={()=>setPlayerItem(null)} onProgress={(src,pos,dur)=>updateHistoryPos(src,pos,dur)} onSelect={(it)=>{ setPlayerItem(it); updateHistoryPos(it.src, it.position||0, it.duration||0) }} showToast={showToast} enqueueDownload={enqueueDownload} cancelDownload={cancelDownload} downloadJobs={downloadJobs} resolverUrl={state.settings?.resolverUrl||''} resolverKey={state.settings?.resolverKey||''} />}
     {menu && <MenuModal menu={menu} onClose={()=>setMenu(null)} />}
     {confirm && <ConfirmModal confirm={confirm} onClose={()=>setConfirm(null)} />}
     {toast && <div className="toast">{toast}</div>}

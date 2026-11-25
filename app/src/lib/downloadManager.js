@@ -20,13 +20,17 @@ async function resolveSaveDir(dirName='Download') {
 
 export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
   const jobs = new Map()
+  const controllers = new Map()
   let running = 0
   const max = 2
 
   function emit() { onUpdate?.([...jobs.values()].map(j => ({ ...j }))) }
+  function isActive(j) { return j && ['queued','downloading','resolving'].includes(j.status) }
 
   async function run(job) {
     job.status = 'downloading'; job.error = ''; emit()
+    const ctrl = new AbortController()
+    controllers.set(job.id, ctrl)
     try {
       const name = sanitize(job.fileName || job.name || 'video.mp4')
       let url = job.proxyDownloadUrl || job.downloadUrl || job.proxyStreamUrl || job.directUrl || job.src
@@ -61,11 +65,12 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
             ok = await tryNative(url)
           } else { throw e }
         }
+        if (job.status === 'cancelled') throw new DOMException('Aborted','AbortError')
         if (!ok) throw new Error('Download failed')
         job.progress = 100; job.status = 'done'; job.savedPath = dest; job.savedDirectory = String(destDir.directory)
       } else {
         const doWeb = async (dlUrl) => {
-          const res = await fetch(dlUrl)
+          const res = await fetch(dlUrl, { signal: ctrl.signal })
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
           const total = Number(res.headers.get('content-length') || 0)
           if (res.body && total) {
@@ -73,6 +78,7 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
             const chunks = []
             let received = 0
             while (true) {
+              if (ctrl.signal.aborted) throw new DOMException('Aborted','AbortError')
               const { done, value } = await reader.read()
               if (done) break
               chunks.push(value)
@@ -99,8 +105,13 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
         job.progress = 100; job.status = 'done'; job.savedPath = name
       }
     } catch (e) {
-      job.status = 'error'; job.error = String(e?.message || e).slice(0, 200)
+      if (e?.name === 'AbortError' || job.status === 'cancelled') {
+        job.status = 'cancelled'; job.error = ''
+      } else {
+        job.status = 'error'; job.error = String(e?.message || e).slice(0, 200)
+      }
     }
+    controllers.delete(job.id)
     emit()
     onComplete?.({ ...job })
   }
@@ -114,8 +125,12 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
     }
   }
 
+  function keyFor(item) { return item?.sourceUrl || item?.directUrl || item?.src || item?.id || '' }
   return {
     enqueue(item, dirName='Download') {
+      const k = keyFor(item)
+      const existing = [...jobs.values()].find(j => isActive(j) && keyFor(j) === k)
+      if (existing) return { id: existing.id, deduped: true, status: existing.status }
       const id = uid()
       const job = {
         id, itemId: item.id, title: item.title || item.name, name: item.name, fileName: item.fileName || item.name || 'video.mp4',
@@ -125,10 +140,20 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
       }
       jobs.set(id, job)
       emit(); pump()
-      return id
+      return { id, deduped: false, status: job.status }
+    },
+    cancel(id) {
+      const job = jobs.get(id)
+      if (!job) return
+      if (job.status === 'queued') { job.status = 'cancelled'; job.error=''; emit(); return }
+      if (['downloading','resolving'].includes(job.status)) { job.status = 'cancelled'; job.error=''; try { controllers.get(id)?.abort() } catch {} emit(); return }
     },
     getAll() { return [...jobs.values()] },
-    clearDone() { for (const [id,j] of jobs) if (j.status==='done'||j.status==='error') jobs.delete(id); emit() },
+    getActiveForItem(item) {
+      const k = keyFor(item)
+      return [...jobs.values()].find(j => isActive(j) && keyFor(j) === k) || null
+    },
+    clearDone() { for (const [id,j] of jobs) if (['done','error','cancelled'].includes(j.status)) jobs.delete(id); emit() },
   }
 }
 
