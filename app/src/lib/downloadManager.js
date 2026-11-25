@@ -265,7 +265,7 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
         job.speedBps = 0
         job.etaSec = null
         job.error = /Failed to fetch/i.test(msg)
-          ? 'Failed to fetch (network/CORS/cold start). Tap Retry; if it persists, check resolver/connection in Settings.'
+          ? 'Failed to fetch. Check internet/Terabox NDUS in Settings, then Retry.'
           : msg.slice(0, 220)
       }
     }

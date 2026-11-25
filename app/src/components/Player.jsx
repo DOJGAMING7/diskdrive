@@ -3,7 +3,7 @@ import { fmtTime } from '../lib/store.js'
 
 import { resolveTeraboxLink } from '../lib/terabox.js'
 
-export default function Player({ item, queue=[], onClose, onProgress, onSelect, showToast, enqueueDownload, cancelDownload, downloadJobs=[], resolverUrl, resolverKey, downloadDir='Download' }) {
+export default function Player({ item, queue=[], onClose, onProgress, onSelect, showToast, enqueueDownload, cancelDownload, downloadJobs=[], teraboxCookie='', downloadDir='Download' }) {
   const wrapRef = useRef(null)
   const videoRef = useRef(null)
   const hideTimer = useRef(null)
@@ -20,7 +20,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
   const [fs, setFs] = useState(false)
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(true)
-  const [useDirect, setUseDirect] = useState(false)
+  const [useFallback, setUseFallback] = useState(false)
   const [showQueue, setShowQueue] = useState(false)
   const [zoom, setZoom] = useState('contain') // contain|cover|fill
   const [fsMode, setFsMode] = useState('auto') // auto|landscape|portrait
@@ -37,7 +37,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
   useEffect(() => {
     const v = videoRef.current; if (!v) return
     setErr(''); setLoading(true); setPlaying(false); setCurrentTime(0); setDuration(0); setBuffered(0)
-    const chosen = (useDirect && item.directUrl) ? item.directUrl : item.src
+    const chosen = (!useFallback && (item.directUrl || item.src)) ? (item.directUrl || item.src) : (item.src || item.directUrl)
     v.src = chosen
     v.load()
     const onLoaded = () => { setDuration(v.duration||0); setLoading(false); if (item.position && item.position < (v.duration||99999)-3) v.currentTime = item.position; v.play().then(()=>setPlaying(true)).catch(()=>{}) }
@@ -50,22 +50,24 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
     const onEnd = () => { setPlaying(false); if (queue[idx+1]) onSelect(queue[idx+1]) }
     const onErr = async () => {
       setLoading(false)
-      if (!useDirect && item.directUrl && item.directUrl !== v.src) {
-        setErr('Proxy playback failed. Trying direct link…')
-        setUseDirect(true)
-        return
-      }
-      if (item.sourceUrl && resolverUrl) {
+      const canFallback = !useFallback && item.src && item.directUrl && item.src !== item.directUrl
+      if (canFallback) { setErr('Trying alternate stream source…'); setUseFallback(true); return }
+      if (item.sourceUrl && teraboxCookie) {
         try {
-          setErr('Link may have expired. Re-resolving…')
+          setErr('Link may have expired. Re-resolving on device…')
           setLoading(true)
-          const fresh = await resolveTeraboxLink(item.sourceUrl, { resolverUrl, resolverKey })
+          const fresh = await resolveTeraboxLink(item.sourceUrl, { teraboxCookie })
           setLoading(false)
-          if (fresh?.src) { onSelect({ ...item, ...fresh }); return }
-        } catch {}
+          if (fresh?.src || fresh?.directUrl) { onSelect({ ...item, ...fresh }); return }
+        } catch (e) {
+          setLoading(false)
+          const msg = String(e?.message||e)
+          setErr(msg.includes('NDUS') || msg.includes('cookie') || msg.includes('errno') ? 'Terabox cookie expired/missing. Update NDUS in Settings.' : msg)
+          return
+        }
       }
       setLoading(false)
-      setErr('Cannot play this video file. Try Download or re-resolve.')
+      setErr(item.sourceUrl ? 'Cannot play this video. Update Terabox NDUS in Settings and re-resolve.' : 'Cannot play this video file.')
     }
     v.addEventListener('loadedmetadata', onLoaded)
     v.addEventListener('timeupdate', onTime)
@@ -78,7 +80,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
     v.addEventListener('ended', onEnd)
     v.addEventListener('error', onErr)
     return () => { v.pause(); v.removeEventListener('loadedmetadata', onLoaded); v.removeEventListener('timeupdate', onTime); v.removeEventListener('play', onPlay); v.removeEventListener('pause', onPause); v.removeEventListener('waiting', onWait); v.removeEventListener('stalled', onStalled); v.removeEventListener('canplay', onCan); v.removeEventListener('canplaythrough', onCan); v.removeEventListener('ended', onEnd); v.removeEventListener('error', onErr) }
-  }, [item?.src, item?.directUrl, useDirect])
+  }, [item?.src, item?.directUrl, item?.sourceUrl, useFallback, teraboxCookie])
 
   useEffect(() => { const v=videoRef.current; if(v) v.playbackRate = hold2x ? 2 : speed }, [speed, hold2x])
   useEffect(() => { const onFs=()=> setFs(!!document.fullscreenElement); document.addEventListener('fullscreenchange', onFs); return ()=>document.removeEventListener('fullscreenchange', onFs) }, [])
@@ -180,9 +182,9 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
         {err && <div style={{marginBottom:10,fontSize:13}}>
           <div>{err}</div>
           <div className="row" style={{marginTop:8}}>
-            {(item.proxyStreamUrl || item.proxyDownloadUrl || item.src) && <button className="btn ghost" onClick={()=>window.open(item.proxyStreamUrl || item.proxyDownloadUrl || item.src, '_blank', 'noopener,noreferrer')}>Open in other player</button>}
-            {activeJob ? <button className="btn ghost" onClick={()=>cancelDownload?.(activeJob.id)}>Cancel {activeJob.progress||0}%</button> : <button className="btn ghost" onClick={()=>{ if (item?.nativePath || item?.stored==='app-private' || item?.stored==='native-external') { import('../lib/export.js').then(m=>m.saveToPhone(item, downloadDir)).then(()=>showToast?.('Saved to device')).catch(()=>showToast?.('Save failed')); return } if(enqueueDownload) enqueueDownload(item); else window.open(item.proxyDownloadUrl || item.downloadUrl || item.src, '_blank') }}>{(item?.nativePath||item?.stored==='app-private'||item?.stored==='native-external')?'Save to phone':'Download'}</button>}
-            {item.sourceUrl && resolverUrl && <button className="btn ghost" onClick={async()=>{ try{ setLoading(true); setErr('Re-resolving...'); const fresh=await resolveTeraboxLink(item.sourceUrl,{resolverUrl,resolverKey}); setLoading(false); if(fresh?.src) onSelect({...item,...fresh}); }catch(e){ setLoading(false); setErr(String(e?.message||e)) } }}>Re-resolve</button>}
+            {(item.directUrl || item.src) && <button className="btn ghost" onClick={()=>window.open(item.directUrl || item.src, '_blank', 'noopener,noreferrer')}>Open link</button>}
+            {activeJob ? <button className="btn ghost" onClick={()=>cancelDownload?.(activeJob.id)}>Cancel {activeJob.progress||0}%</button> : <button className="btn ghost" onClick={()=>{ if (item?.nativePath || item?.stored==='app-private' || item?.stored==='native-external') { import('../lib/export.js').then(m=>m.saveToPhone(item, downloadDir)).then(()=>showToast?.('Saved to device')).catch(()=>showToast?.('Save failed')); return } if(enqueueDownload) enqueueDownload({ ...item, src: item.directUrl || item.src, directUrl: item.directUrl || item.src, downloadUrl: item.directUrl || item.downloadUrl || item.src }); else window.open(item.directUrl || item.downloadUrl || item.src, '_blank') }}>{(item?.nativePath||item?.stored==='app-private'||item?.stored==='native-external')?'Save to phone':'Download'}</button>}
+            {item.sourceUrl && <button className="btn ghost" onClick={async()=>{ try{ if(!teraboxCookie){ setErr('Add Terabox NDUS in Settings first.'); return } setLoading(true); setErr('Re-resolving...'); const fresh=await resolveTeraboxLink(item.sourceUrl,{teraboxCookie}); setLoading(false); if(fresh?.src||fresh?.directUrl) onSelect({...item,...fresh}); }catch(e){ setLoading(false); const msg=String(e?.message||e); setErr(msg.includes('NDUS')||msg.includes('cookie')||msg.includes('errno')?'Terabox cookie expired/missing. Update NDUS in Settings.':msg) } }}>Re-resolve</button>}
           </div>
         </div>}
         {pipMsg && <div style={{marginBottom:10,fontSize:13}}>{pipMsg}</div>}

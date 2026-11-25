@@ -7,9 +7,10 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
   const [serverStatus, setServerStatus] = useState(null)
   const [checking, setChecking] = useState(false)
   const [updating, setUpdating] = useState(false)
-  const [resolverStatus, setResolverStatus] = useState(null)
-  const [resolverChecking, setResolverChecking] = useState(false)
-  const [resolverSavedMsg, setResolverSavedMsg] = useState('')
+  const [teraboxStatus, setTeraboxStatus] = useState(null)
+  const [teraboxChecking, setTeraboxChecking] = useState(false)
+  const [teraboxSavedMsg, setTeraboxSavedMsg] = useState('')
+  const [showNdus, setShowNdus] = useState(false)
   const [pinMode, setPinMode] = useState(null)
   const [pin, setPin] = useState('')
   const [pinErr, setPinErr] = useState('')
@@ -21,9 +22,6 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
 
   const serverUrl = state.settings?.serverUrl?.trim() || ''
   const serverLocked = !!state.settings?.serverLocked
-  const resolverLocked = !!state.settings?.resolverLocked
-  const resolverUrl = state.settings?.resolverUrl || ''
-  const resolverKey = state.settings?.resolverKey || ''
 
   const checkUiUpdate = async () => {
     if (!serverUrl) { showToast('Set server URL first'); return }
@@ -70,36 +68,41 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
     else showToast(`Update check: ${res.status}`)
   }
 
-  const saveResolver = async () => {
-    await save({ settings: { ...state.settings, resolverUrl: resolverUrl.trim(), resolverKey: resolverKey.trim(), resolverLocked: true } })
-    setResolverSavedMsg('Saved and locked')
-    setResolverStatus(null)
-    showToast('Resolver settings saved and locked')
+  const saveTerabox = async () => {
+    const next = String(state.settings?.teraboxCookie || '').trim()
+    await save({ settings: { ...state.settings, teraboxCookie: next, teraboxResolverMode: 'device' } })
+    setTeraboxSavedMsg(next ? 'Saved on device' : 'Cleared')
+    setTeraboxStatus(null)
+    showToast(next ? 'Terabox NDUS saved on device' : 'Terabox NDUS cleared')
   }
 
-  const checkResolver = async () => {
-    const base = resolverUrl.trim().replace(/\/+$/, '')
-    if (!base) { setResolverStatus({ ok:false, msg:'Set Resolver URL first' }); return null }
-    setResolverChecking(true)
-    const t0 = performance.now()
+  const clearTerabox = async () => {
+    await save({ settings: { ...state.settings, teraboxCookie: '' } })
+    setTeraboxSavedMsg('Cleared')
+    setTeraboxStatus(null)
+    showToast('Terabox NDUS cleared from device')
+  }
+
+  const checkTerabox = async () => {
+    const cookie = String(state.settings?.teraboxCookie || '').trim()
+    if (!cookie) { const s={ ok:false, msg:'Add NDUS/cookie first' }; setTeraboxStatus(s); return s }
+    setTeraboxChecking(true)
+    setTeraboxStatus(null)
     try {
-      const healthUrl = base.endsWith('/resolve') ? base.slice(0, -'/resolve'.length) + '/health' : base + '/health'
-      const headers = {}
-      const k = resolverKey.trim()
-      if (k) headers['X-Resolver-Key'] = k
-      const res = await fetch(healthUrl, { method:'GET', headers, cache:'no-store' })
-      const data = await res.json().catch(()=>null)
-      const ms = Math.round(performance.now()-t0)
-      const ok = res.ok && (data?.ok || data?.service)
-      const out = { ok, msg:`${ok?'Connected':'Error'} (${res.status}) • ${ms}ms`, ms }
-      setResolverStatus(out)
-      setResolverChecking(false)
-      return out
+      const { resolveTeraboxLink } = await import('../lib/terabox.js')
+      const testUrl = 'https://1024terabox.com/s/1dDWl5i567Ih1tlp6WWF60A'
+      const r = await resolveTeraboxLink(testUrl, { teraboxCookie: cookie })
+      const ok = !!(r?.directUrl || r?.src)
+      const status = { ok, msg: ok ? `On-device resolve OK (${String(r?.name||'file').slice(0,40)})` : 'Resolved but no direct link' }
+      setTeraboxStatus(status)
+      return status
     } catch (e) {
-      const out = { ok:false, msg:`Not reachable • ${Math.round(performance.now()-t0)}ms` }
-      setResolverStatus(out)
-      setResolverChecking(false)
-      return out
+      const msg = String(e?.message || e)
+      const status = { ok:false, msg: msg.includes('cookie') || msg.includes('NDUS') || msg.includes('errno') ? msg.slice(0,160) : `Resolve test failed: ${msg.slice(0,120)}` }
+      setTeraboxStatus(status)
+      return status
+    } finally {
+      setTeraboxChecking(false)
     }
   }
 
@@ -110,15 +113,15 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
     try { const r = await fetch('https://api.cloudflare.com/cdn-cgi/trace', {cache:'no-store'}); out.cloudflare = { ok:r.ok, msg: r.ok?`OK ${Math.round(performance.now()-t0)}ms`:`${r.status}` } }
     catch { out.cloudflare = { ok:false, msg:'Unreachable' } }
     const tr = performance.now()
-    out.render = await (async()=>{ try {
-      const base = resolverUrl.trim().replace(/\/+$/, '')
-      if (!base) return { ok:false, msg:'Resolver URL not set' }
-      const healthUrl = base.endsWith('/resolve') ? base.slice(0,-'/resolve'.length)+'/health' : base+'/health'
-      const headers = {}; const k=resolverKey.trim(); if(k) headers['X-Resolver-Key']=k
-      const r = await fetch(healthUrl, {headers, cache:'no-store'})
-      const d = await r.json().catch(()=>null)
-      return { ok:r.ok && (d?.ok||d?.service), msg:`${r.ok?'OK':'Err'} ${Math.round(performance.now()-tr)}ms` }
-    } catch { return { ok:false, msg:`Unreachable ${Math.round(performance.now()-tr)}ms` } } })()
+    try {
+      const cookie = String(state.settings?.teraboxCookie || '').trim()
+      if (!cookie) out.terabox = { ok:false, msg:'NDUS not set' }
+      else {
+        const { resolveTeraboxLink } = await import('../lib/terabox.js')
+        const r = await resolveTeraboxLink('https://1024terabox.com/s/1dDWl5i567Ih1tlp6WWF60A', { teraboxCookie: cookie })
+        out.terabox = { ok: !!(r?.directUrl||r?.src), msg: `OK ${Math.round(performance.now()-tr)}ms` }
+      }
+    } catch (e) { out.terabox = { ok:false, msg: `Failed ${Math.round(performance.now()-tr)}ms` } }
     const tu = performance.now()
     try { const r = await fetch(serverUrl.replace(/\/$/,'') + '/ui-manifest.json', {cache:'no-store'}); out.ui = { ok:r.ok, msg: r.ok?`OK ${Math.round(performance.now()-tu)}ms`:`${r.status}` } }
     catch { out.ui = { ok:false, msg: serverUrl ? 'Unreachable' : 'Not set' } }
@@ -127,7 +130,8 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
 
   const exportBackup = async () => {
     try {
-      const data = { v:1, exportedAt:new Date().toISOString(), state: { history: state.history||[], playlists: state.playlists||[], downloads: state.downloads||[], settings: state.settings||{} } }
+      const safeSettings = { ...(state.settings||{}) }; delete safeSettings.teraboxCookie; delete safeSettings.resolverUrl; delete safeSettings.resolverKey; delete safeSettings.resolverLocked;
+      const data = { v:1, exportedAt:new Date().toISOString(), state: { history: state.history||[], playlists: state.playlists||[], downloads: state.downloads||[], settings: safeSettings } }
       const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'})
       const a = document.createElement('a'); const url = URL.createObjectURL(blob)
       a.href=url; a.download=`diskdrive-backup-${Date.now()}.json`; a.click(); setTimeout(()=>URL.revokeObjectURL(url), 5000)
@@ -141,13 +145,19 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
     try {
       const data = JSON.parse(await f.text())
       const st = data?.state || data
+      const importedSettings = { ...(st.settings || {}) }
+      // Never import secrets/legacy resolver credentials from backups
+      delete importedSettings.teraboxCookie
+      delete importedSettings.resolverUrl
+      delete importedSettings.resolverKey
+      delete importedSettings.resolverLocked
       await save({
         history: Array.isArray(st.history)?st.history:[],
         playlists: Array.isArray(st.playlists)?st.playlists:state.playlists,
         downloads: Array.isArray(st.downloads)?st.downloads:[],
-        settings: { ...state.settings, ...(st.settings||{}) },
+        settings: { ...state.settings, ...importedSettings },
       })
-      showToast('Backup restored')
+      showToast('Backup restored (NDUS/secrets not imported)')
     } catch { showToast('Invalid backup file') }
   }
 
@@ -199,18 +209,21 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
     </div>
 
     <div className="card">
-      <div className="section-title">Terabox resolver</div>
-      <p className="small" style={{marginTop:0}}>Set your resolver Worker URL. NDUS stays on the server secret, never in this app. Lock prevents accidental edits.</p>
-      <input className="input" placeholder="Resolver URL (https://.../resolve)" value={resolverUrl} disabled={resolverLocked} onChange={e=>{ setResolverSavedMsg(''); save({ settings:{...state.settings, resolverUrl:e.target.value} }) }} />
-      <input className="input" style={{marginTop:10}} placeholder="Resolver key (optional)" value={resolverKey} disabled={resolverLocked} onChange={e=>{ setResolverSavedMsg(''); save({ settings:{...state.settings, resolverKey:e.target.value} }) }} />
-      <div className="row" style={{marginTop:10}}>
-        {!resolverLocked ? <button className="btn" onClick={saveResolver}>Save & Lock</button> : <button className="btn ghost" onClick={()=>{ save({ settings:{...state.settings, resolverLocked:false} }); setResolverSavedMsg('Unlocked for editing') }}>Unlock</button>}
-        <button className="btn ghost" onClick={checkResolver} disabled={resolverChecking}>{resolverChecking?'Checking…':'Check resolver'}</button>
-      </div>
-      <div className="small" style={{marginTop:10}}>
-        <div>{resolverLocked ? '🔒 Locked' : '🔓 Unlocked' }{resolverSavedMsg ? ` • ${resolverSavedMsg}` : ''}</div>
-        {resolverStatus ? <div style={{marginTop:6}}>{resolverStatus.ok?'●':'○'} {resolverStatus.msg}</div> : null}
-        <div style={{marginTop:6}}>DiskWala resolve is still coming soon.</div>
+      <div className="section-title">Terabox (Private, on-device)</div>
+      <p className="small" style={{marginTop:0}}>Uses your Terabox NDUS/cookie on this device only to resolve direct links. It is never committed, never sent to OTA, and never included in backup export.</p>
+      <div style={{display:'grid',gap:8}}>
+        <div style={{display:'flex',gap:8}}>
+          <input className="input" value={teraboxCookie} onChange={e=>{ setTeraboxSavedMsg(''); save({ settings:{ ...state.settings, teraboxCookie:e.target.value } }) }} placeholder="NDUS or full cookie (device-only)" type={showNdus?'text':'password'} autoCapitalize="off" autoCorrect="off" spellCheck="false" />
+          <button className="btn ghost" onClick={()=>setShowNdus(v=>!v)}>{showNdus?'Hide':'Show'}</button>
+        </div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <button className="btn primary" onClick={saveTerabox}>Save on device</button>
+          <button className="btn ghost" onClick={checkTerabox} disabled={teraboxChecking}>{teraboxChecking ? 'Testing…' : 'Test resolve'}</button>
+          <button className="btn ghost" onClick={clearTerabox}>Clear</button>
+        </div>
+        {teraboxSavedMsg && <div className="small">{teraboxSavedMsg}</div>}
+        {teraboxStatus && <div className="small" style={{color:teraboxStatus.ok?'#7fdca3':'#ff9b9b'}}>{teraboxStatus.msg}</div>}
+        <div className="small" style={{opacity:.7}}>Tip: paste just the NDUS value, or a full cookie containing ndus=…</div>
       </div>
     </div>
 
@@ -262,11 +275,11 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
 
     <div className="card">
       <div className="section-title">Connectivity check</div>
-      <p className="small" style={{marginTop:0}}>Check Cloudflare, Render resolver, and UI server response.</p>
+      <p className="small" style={{marginTop:0}}>Check Cloudflare, on-device Terabox resolver, and UI server response.</p>
       <button className="btn ghost" onClick={checkConnectivity} disabled={connBusy}>{connBusy?'Checking…':'Check all connections'}</button>
       {conn && <div className="small" style={{marginTop:10}}>
         <div>{conn.cloudflare?.ok?'●':'○'} Cloudflare: {conn.cloudflare?.msg}</div>
-        <div>{conn.render?.ok?'●':'○'} Render/Resolver: {conn.render?.msg}</div>
+        <div>{conn.terabox?.ok?'●':'○'} Terabox resolver: {conn.terabox?.msg}</div>
         <div>{conn.ui?.ok?'●':'○'} UI Server: {conn.ui?.msg}</div>
       </div>}
     </div>

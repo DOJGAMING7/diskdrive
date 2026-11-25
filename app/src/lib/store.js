@@ -9,9 +9,8 @@ const DEFAULT_SETTINGS = {
   downloadStorage: 'inapp', // inapp | device
   serverUrl: '',
   serverLocked: false,
-  resolverUrl: '',
-  resolverKey: '',
-  resolverLocked: false,
+  teraboxCookie: '', // device-only; never export/log
+  teraboxResolverMode: 'device', // device | legacy
   updateLog: [],
 }
 const DEFAULT_PLAYLISTS = [
@@ -31,6 +30,11 @@ export async function loadState() {
     getPref(KEYS.downloads, []),
     getPref(KEYS.settings, DEFAULT_SETTINGS),
   ])
+  const mergedSettings = { ...DEFAULT_SETTINGS, ...(settings || {}) }
+  // Migrate/remove legacy Render resolver fields from runtime object
+  delete mergedSettings.resolverUrl
+  delete mergedSettings.resolverKey
+  delete mergedSettings.resolverLocked
   return {
     adminUnlocked: !!adminUnlocked,
     adminHash,
@@ -40,7 +44,7 @@ export async function loadState() {
     history: Array.isArray(history) ? history : [],
     playlists: Array.isArray(playlists) && playlists.length ? playlists : DEFAULT_PLAYLISTS,
     downloads: Array.isArray(downloads) ? downloads : [],
-    settings: { ...DEFAULT_SETTINGS, ...(settings || {}) },
+    settings: mergedSettings,
   }
 }
 

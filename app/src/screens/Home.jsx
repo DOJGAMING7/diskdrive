@@ -57,8 +57,7 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
       setProgress(p => ({ ...p, done: i, current: terabox.length===1 ? 'Resolving Terabox link…' : `Resolving ${i + 1}/${terabox.length}: ${label.slice(0, 45)}` }))
       try {
         const media = await resolveTeraboxLink(job.url, {
-          resolverUrl: state.settings?.resolverUrl || '',
-          resolverKey: state.settings?.resolverKey || '',
+          teraboxCookie: state.settings?.teraboxCookie || '',
         })
         setProgress(p => ({ ...p, current: terabox.length===1 ? 'Loading file info…' : `Loading ${i + 1}/${terabox.length} info…` }))
         const title = media.title || guessTitle(text, job.url) || media.name
@@ -142,7 +141,7 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
         <button className="btn" onClick={onResolve} disabled={busy} style={{ minWidth: 120 }}>{busy ? 'Resolving…' : 'Add / Resolve'}</button>
         <button className="btn ghost" onClick={() => { setLink(''); setProgress({ active:false,total:0,done:0,current:'',errors:[] }) }} disabled={busy}>Clear</button>
       </div>
-      <div className="small" style={{ marginTop: 10 }}>Supports multiple Terabox links in one message. Terabox resolves through your resolver URL in Settings. NDUS stays on server. DiskWala coming soon.</div>
+      <div className="small" style={{ marginTop: 10 }}>Supports multiple Terabox links in one message. Terabox resolves on-device using your private NDUS/cookie in Settings. DiskWala coming soon.</div>
 
       {(busy || progress.total > 0) && <div style={{ marginTop: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#ddd', marginBottom: 6 }}>

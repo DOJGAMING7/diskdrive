@@ -34,7 +34,7 @@ export default function App() {
   const [bootMsg, setBootMsg] = useState('Loading…')
   const [tab, setTab] = useState('home')
   const [toast, setToast] = useState('')
-  const [state, setState] = useState({ adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:"watch-later",name:"WATCH LATER",builtIn:true,items:[],updatedAt:Date.now()},{id:"favourites",name:"FAVOURITES",builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,downloadDir:"DiskDrive",serverUrl:"",resolverUrl:"",resolverKey:"",resolverLocked:false} })
+  const [state, setState] = useState({ adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:"watch-later",name:"WATCH LATER",builtIn:true,items:[],updatedAt:Date.now()},{id:"favourites",name:"FAVOURITES",builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,downloadDir:"Download",downloadStorage:"inapp",serverUrl:"",serverLocked:false,teraboxCookie:"",teraboxResolverMode:"device",updateLog:[]} })
   const [adminInput, setAdminInput] = useState('')
   const [adminErr, setAdminErr] = useState('')
   const [adminAttempts, setAdminAttempts] = useState(0)
@@ -50,11 +50,11 @@ export default function App() {
   const [resolveState, setResolveState] = useState({ provider:'AUTO', link:'', busy:false, progress:{ active:false,total:0,done:0,current:'',errors:[] }, resolvedItems:[] })
   const [downloadJobs, setDownloadJobs] = useState([])
   const downloadMgr = useRef(null)
-  const resolverCfg = useRef({ resolverUrl:'', resolverKey:'' })
+  const teraboxCfg = useRef({ teraboxCookie:'' })
   const lockTimer = useRef(null)
   const lastActive = useRef(Date.now())
 
-  useEffect(() => { resolverCfg.current = { resolverUrl: state?.settings?.resolverUrl || '', resolverKey: state?.settings?.resolverKey || '' } }, [state?.settings?.resolverUrl, state?.settings?.resolverKey])
+  useEffect(() => { teraboxCfg.current = { teraboxCookie: state?.settings?.teraboxCookie || '' } }, [state?.settings?.teraboxCookie])
 
   useEffect(() => {
     if (downloadMgr.current) return
@@ -80,11 +80,11 @@ export default function App() {
           showToast(`Download failed: ${job.error?.slice(0,60) || 'error'}`)
         }
       },
-      getSettings: () => ({ ...resolverCfg.current, nativeDownload: true }),
+      getSettings: () => ({ nativeDownload: true }),
       resolveItem: async (job) => {
         if (!job.sourceUrl) throw new Error('No source URL to re-resolve')
-        const cfg = resolverCfg.current
-        const r = await resolveTeraboxLink(job.sourceUrl, { resolverUrl: cfg.resolverUrl, resolverKey: cfg.resolverKey })
+        const cfg = teraboxCfg.current
+        const r = await resolveTeraboxLink(job.sourceUrl, { teraboxCookie: cfg.teraboxCookie })
         return r
       }
     })
@@ -97,7 +97,7 @@ export default function App() {
     try {
       setBoot('Loading saved data…')
       const s = await withTimeout(loadState(), 3000, 'load state').catch((e)=>{ console.warn(e); return null })
-      const safe = s || { adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:'watch-later',name:'WATCH LATER',builtIn:true,items:[],updatedAt:Date.now()},{id:'favourites',name:'FAVOURITES',builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,downloadDir:'Download',serverLocked:false,serverUrl:'',resolverUrl:'',resolverKey:'',resolverLocked:false} }
+      const safe = s || { adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:'watch-later',name:'WATCH LATER',builtIn:true,items:[],updatedAt:Date.now()},{id:'favourites',name:'FAVOURITES',builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,downloadDir:'Download',downloadStorage:'inapp',serverLocked:false,serverUrl:'',teraboxCookie:'',teraboxResolverMode:'device',updateLog:[]} }
       const serverUrl = safe?.settings?.serverUrl || ''
       if (serverUrl) {
         setBoot('Checking UI updates…')
@@ -296,8 +296,13 @@ export default function App() {
 
     <nav className="bottom-nav"><div className="nav-inner">{TABS.map(t=>{ const Icon=t.icon; return <button key={t.id} className={`navbtn ${tab===t.id?'active':''}`} onClick={()=>setTab(t.id)}><Icon/><span>{t.label}</span></button> })}</div></nav>
 
-    {playerItem && <Player item={playerItem} queue={playerQueue} onClose={()=>setPlayerItem(null)} onProgress={(src,pos,dur)=>updateHistoryPos(src,pos,dur)} onSelect={(it)=>{ setPlayerItem(it); updateHistoryPos(it.src, it.position||0, it.duration||0) }} showToast={showToast} enqueueDownload={enqueueDownload} cancelDownload={cancelDownload} downloadJobs={downloadJobs} resolverUrl={state.settings?.resolverUrl||''} resolverKey={state.settings?.resolverKey||''} downloadDir={state.settings?.downloadDir||'Download'} />}
+    {playerItem && <Player item={playerItem} queue={playerQueue} onClose={()=>setPlayerItem(null)} onProgress={(src,pos,dur)=>updateHistoryPos(src,pos,dur)} onSelect={(it)=>{ setPlayerItem(it); updateHistoryPos(it.src, it.position||0, it.duration||0) }} showToast={showToast} enqueueDownload={enqueueDownload} cancelDownload={cancelDownload} downloadJobs={downloadJobs} teraboxCookie={state.settings?.teraboxCookie||''} downloadDir={state.settings?.downloadDir||'Download'} />}
     {menu && <MenuModal menu={menu} onClose={()=>setMenu(null)} />}
+    {confirm && <ConfirmModal confirm={confirm} onClose={()=>setConfirm(null)} />}
+    {toast && <div className="toast">{toast}</div>}
+  </div>
+}
+MenuModal menu={menu} onClose={()=>setMenu(null)} />}
     {confirm && <ConfirmModal confirm={confirm} onClose={()=>setConfirm(null)} />}
     {toast && <div className="toast">{toast}</div>}
   </div>
