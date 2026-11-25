@@ -22,6 +22,7 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
 
   const serverUrl = state.settings?.serverUrl?.trim() || ''
   const serverLocked = !!state.settings?.serverLocked
+  const teraboxCookie = state.settings?.teraboxCookie || '' 
 
   const checkUiUpdate = async () => {
     if (!serverUrl) { showToast('Set server URL first'); return }

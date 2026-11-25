@@ -32,7 +32,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
   const idx = Math.max(0, queue.findIndex(q => q.id===item.id || (q.src && q.src===item.src)))
   const activeJob = (downloadJobs||[]).find(j => ['queued','downloading','resolving'].includes(j.status) && (j.sourceUrl===item.sourceUrl || j.src===item.src || j.itemId===item.id))
 
-  useEffect(() => { setUseDirect(false) }, [item?.id, item?.src, item?.directUrl])
+  useEffect(() => { setUseFallback(false) }, [item?.id, item?.src, item?.directUrl])
 
   useEffect(() => {
     const v = videoRef.current; if (!v) return
