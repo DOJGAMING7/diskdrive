@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { fmtTime } from '../lib/store.js'
 
-export default function Player({ item, queue=[], onClose, onProgress, onSelect, showToast }) {
+export default function Player({ item, queue=[], onClose, onProgress, onSelect, showToast, enqueueDownload }) {
   const wrapRef = useRef(null)
   const videoRef = useRef(null)
   const hideTimer = useRef(null)
@@ -24,6 +24,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
   const [fsMode, setFsMode] = useState('auto') // auto|landscape|portrait
   const [quality, setQuality] = useState('auto')
   const [pipMsg, setPipMsg] = useState('')
+  const [showInfo, setShowInfo] = useState(false)
   const touchY = useRef(null)
   const seekingRef = useRef(false)
   const idx = Math.max(0, queue.findIndex(q => q.id===item.id || (q.src && q.src===item.src)))
@@ -41,6 +42,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
     const onPlay = () => setPlaying(true)
     const onPause = () => setPlaying(false)
     const onWait = () => setLoading(true)
+    const onStalled = () => setLoading(true)
     const onCan = () => setLoading(false)
     const onEnd = () => { setPlaying(false); if (queue[idx+1]) onSelect(queue[idx+1]) }
     const onErr = () => {
@@ -57,10 +59,12 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
     v.addEventListener('play', onPlay)
     v.addEventListener('pause', onPause)
     v.addEventListener('waiting', onWait)
+    v.addEventListener('stalled', onStalled)
     v.addEventListener('canplay', onCan)
+    v.addEventListener('canplaythrough', onCan)
     v.addEventListener('ended', onEnd)
     v.addEventListener('error', onErr)
-    return () => { v.pause(); v.removeEventListener('loadedmetadata', onLoaded); v.removeEventListener('timeupdate', onTime); v.removeEventListener('play', onPlay); v.removeEventListener('pause', onPause); v.removeEventListener('waiting', onWait); v.removeEventListener('canplay', onCan); v.removeEventListener('ended', onEnd); v.removeEventListener('error', onErr) }
+    return () => { v.pause(); v.removeEventListener('loadedmetadata', onLoaded); v.removeEventListener('timeupdate', onTime); v.removeEventListener('play', onPlay); v.removeEventListener('pause', onPause); v.removeEventListener('waiting', onWait); v.removeEventListener('stalled', onStalled); v.removeEventListener('canplay', onCan); v.removeEventListener('canplaythrough', onCan); v.removeEventListener('ended', onEnd); v.removeEventListener('error', onErr) }
   }, [item?.src, item?.directUrl, useDirect])
 
   useEffect(() => { const v=videoRef.current; if(v) v.playbackRate = hold2x ? 2 : speed }, [speed, hold2x])
@@ -135,7 +139,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
   const onPointerUp = () => { clearTimeout(holdTimer.current); if (hold2x) { setHold2x(false); poke() } }
 
   return <div className="player-wrap" ref={wrapRef} style={{position:'fixed',inset:0,background:'#000',zIndex:300,color:'#fff'}}>
-    <video ref={videoRef} playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:zoom,background:'#000'}} />
+    <video ref={videoRef} playsInline preload="auto" crossOrigin="anonymous" style={{width:'100%',height:'100%',objectFit:zoom,background:'#000'}} />
     <div style={{position:'absolute',inset:0,display:'grid',gridTemplateColumns:'1fr 1fr 1fr'}} onMouseMove={poke} onTouchStart={(e)=>{ poke(); touchY.current = e.touches?.[0]?.clientY ?? null }} onTouchEnd={(e)=>{ const endY = e.changedTouches?.[0]?.clientY; if (touchY.current!=null && endY!=null && touchY.current-endY > 70 && queue.length>1) setShowQueue(true); touchY.current=null }}>
       <div onClick={()=>onTapZone('left')} onPointerDown={()=>onPointerDown('left')} onPointerUp={onPointerUp} onPointerLeave={onPointerUp} />
       <div onClick={()=>onTapZone('center')} onPointerDown={()=>onPointerDown('center')} onPointerUp={onPointerUp} onPointerLeave={onPointerUp} />
@@ -177,8 +181,8 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
           </div>
         </div>
         <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#ddd',marginBottom:10}}><span>{fmtTime(currentTime)}</span><span>{fmtTime(duration)}</span></div>
-        <div className="row" style={{justifyContent:'space-between'}}>
-          <div className="row">
+        <div className="row" style={{justifyContent:'space-between',flexWrap:'wrap'}}>
+          <div className="row" style={{flexWrap:'wrap'}}>
             <select className="input" style={{width:88,padding:'8px 10px'}} value={speed} onChange={e=>setSpeed(Number(e.target.value))}>
               {[0.5,0.75,1,1.25,1.5,2].map(s=><option key={s} value={s}>{s}x</option>)}
             </select>
@@ -192,6 +196,8 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
               <option value="auto">FS Auto</option><option value="landscape">FS Horizontal</option><option value="portrait">FS Vertical</option>
             </select>
             <button className="btn ghost" onClick={togglePiP}>PiP</button>
+            <button className="btn ghost" onClick={()=>setShowInfo(v=>!v)}>Link</button>
+            <button className="btn ghost" onClick={()=>{ if(enqueueDownload) enqueueDownload(item); else window.open(item.downloadUrl||item.directUrl||item.src,'_blank') }}>Download</button>
             {queue.length>1 && <button className="btn ghost" onClick={()=>setShowQueue(v=>!v)}>Queue</button>}
             {queue[idx-1] && <button className="btn ghost" onClick={()=>onSelect(queue[idx-1])}>Prev</button>}
             {queue[idx+1] && <button className="btn ghost" onClick={()=>onSelect(queue[idx+1])}>Next</button>}
@@ -199,6 +205,17 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
           <button className="btn ghost" onClick={toggleFs}>{fs?'Exit':'Fullscreen'}</button>
         </div>
       </div>}
+    </div>}
+
+    {showInfo && <div style={{position:'absolute',left:12,right:12,bottom:'max(96px,env(safe-area-inset-bottom))',background:'rgba(0,0,0,.95)',border:'1px solid #333',borderRadius:12,padding:12,pointerEvents:'auto',zIndex:20}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}><div style={{fontWeight:700}}>Video links</div><button className="iconbtn" onClick={()=>setShowInfo(false)}>✕</button></div>
+      <div className="small" style={{wordBreak:'break-all',marginBottom:8}}><b>Source:</b> {item.sourceUrl || 'Local file'}</div>
+      <div className="small" style={{wordBreak:'break-all',marginBottom:8}}><b>Stream:</b> {item.src || '-'}</div>
+      <div className="row" style={{flexWrap:'wrap'}}>
+        {item.sourceUrl && <button className="btn ghost" onClick={async()=>{try{await navigator.clipboard.writeText(item.sourceUrl); showToast?.('Source link copied')}catch{showToast?.('Copy failed')}}}>Copy source</button>}
+        {item.src && <button className="btn ghost" onClick={async()=>{try{await navigator.clipboard.writeText(item.src); showToast?.('Stream link copied')}catch{showToast?.('Copy failed')}}}>Copy stream</button>}
+        <button className="btn ghost" onClick={()=>{ if(enqueueDownload) enqueueDownload(item); else window.open(item.downloadUrl||item.directUrl||item.src,'_blank') }}>Download</button>
+      </div>
     </div>}
 
     {showQueue && queue.length>1 && <div style={{position:'absolute',left:0,right:0,bottom:0,maxHeight:'55%',background:'rgba(0,0,0,.94)',borderTop:'1px solid #333',padding:'12px 14px max(14px,env(safe-area-inset-bottom))',overflow:'auto',pointerEvents:'auto'}}>

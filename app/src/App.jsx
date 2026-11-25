@@ -256,7 +256,7 @@ export default function App() {
 
     <nav className="bottom-nav"><div className="nav-inner">{TABS.map(t=>{ const Icon=t.icon; return <button key={t.id} className={`navbtn ${tab===t.id?'active':''}`} onClick={()=>setTab(t.id)}><Icon/><span>{t.label}</span></button> })}</div></nav>
 
-    {playerItem && <Player item={playerItem} queue={playerQueue} onClose={()=>setPlayerItem(null)} onProgress={(src,pos,dur)=>updateHistoryPos(src,pos,dur)} onSelect={(it)=>{ setPlayerItem(it); updateHistoryPos(it.src, it.position||0, it.duration||0) }} showToast={showToast} />}
+    {playerItem && <Player item={playerItem} queue={playerQueue} onClose={()=>setPlayerItem(null)} onProgress={(src,pos,dur)=>updateHistoryPos(src,pos,dur)} onSelect={(it)=>{ setPlayerItem(it); updateHistoryPos(it.src, it.position||0, it.duration||0) }} showToast={showToast} enqueueDownload={enqueueDownload} />}
     {menu && <MenuModal menu={menu} onClose={()=>setMenu(null)} />}
     {confirm && <ConfirmModal confirm={confirm} onClose={()=>setConfirm(null)} />}
     {toast && <div className="toast">{toast}</div>}
