@@ -10,18 +10,12 @@ const TERABOX_HOSTS = new Set([
 ])
 
 export function isTeraboxUrl(url='') {
-  try {
-    const u = new URL(String(url).trim())
-    return TERABOX_HOSTS.has(u.hostname.toLowerCase())
-  } catch { return false }
+  try { const u = new URL(String(url).trim()); return TERABOX_HOSTS.has(u.hostname.toLowerCase()) } catch { return false }
 }
 
-export function isSupportedTeraboxInput(input='', provider='AUTO') {
-  const v = String(input || '').trim()
-  if (!v) return false
-  if (provider === 'TERABOX') return true
-  if (provider === 'AUTO') return isTeraboxUrl(v)
-  return false
+export function extractTeraboxLinks(text='') {
+  const urls = String(text || '').match(/https?:\/\/[^\s<>"')\]]+/ig) || []
+  return [...new Set(urls.map(u => u.replace(/[),.;!?]+$/g, '').trim()).filter(isTeraboxUrl))]
 }
 
 export async function resolveTeraboxLink(url, { resolverUrl, resolverKey } = {}) {
@@ -39,7 +33,7 @@ export async function resolveTeraboxLink(url, { resolverUrl, resolverKey } = {})
     method: 'POST',
     headers,
     body: JSON.stringify({ url: input }),
-  }), 25000, 'Terabox resolve')
+  }), 30000, 'Terabox resolve')
 
   const data = await res.json().catch(() => null)
   if (!res.ok || !data) {
