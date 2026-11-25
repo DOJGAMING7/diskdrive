@@ -104,8 +104,8 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
     try {
       showToast('Downloading…')
       const { saveToPhone } = await import('../lib/export.js')
-      await saveToPhone(item, state.settings?.downloadDir || 'DiskDrive')
-      showToast('Download saved')
+      const res = await saveToPhone(item, state.settings?.downloadDir || 'Download')
+      showToast(res?.status==='opened'?'Opened in browser':'Download saved')
     } catch (e) {
       const url = item.downloadUrl || item.directUrl || item.src
       if (url) window.open(url, '_blank', 'noopener,noreferrer')

@@ -18,6 +18,7 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
   const [connBusy, setConnBusy] = useState(false)
 
   const serverUrl = state.settings?.serverUrl?.trim() || ''
+  const serverLocked = !!state.settings?.serverLocked
   const resolverLocked = !!state.settings?.resolverLocked
   const resolverUrl = state.settings?.resolverUrl || ''
   const resolverKey = state.settings?.resolverKey || ''
@@ -38,6 +39,9 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
     const res = await checkAndUpdateBundle(serverUrl)
     const meta = await getBundleMeta()
     setBundleStatus?.({ ...res, meta })
+    const log = Array.isArray(state.settings?.updateLog) ? state.settings.updateLog : []
+    const entry = { at: Date.now(), status: res.status, version: meta?.version || res.version || '', notes: res.notes || res.manifest?.notes || '' }
+    await save({ settings: { ...state.settings, updateLog: [entry, ...log].slice(0, 30) } })
     setUpdating(false)
     if (res.status === 'updated') showToast('UI bundle updated. Restart app to load it.')
     else if (res.status === 'up-to-date') showToast('UI is up to date')
@@ -155,15 +159,19 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
 
     <div className="card">
       <div className="section-title">Backend / UI updates</div>
-      <p className="small" style={{marginTop:0}}>Set a server URL to enable UI bundle updates. If server is down, app uses cached bundle or bundled UI.</p>
-      <input className="input" placeholder="Server URL (https://...)" value={state.settings?.serverUrl||''} onChange={e=>save({ settings:{...state.settings, serverUrl:e.target.value} })} />
+      <p className="small" style={{marginTop:0}}>Server URL is used for OTA UI updates. Lock it to avoid accidental deletion.</p>
+      <input className="input" placeholder="Server URL (https://...)" value={state.settings?.serverUrl||''} disabled={serverLocked} onChange={e=>save({ settings:{...state.settings, serverUrl:e.target.value} })} />
       <div className="row" style={{marginTop:10}}>
+        {!serverLocked ? <button className="btn ghost" onClick={()=>save({ settings:{...state.settings, serverLocked:true } })}>Lock URL</button> : <button className="btn ghost" onClick={()=>save({ settings:{...state.settings, serverLocked:false } })}>Unlock URL</button>}
         <button className="btn" onClick={checkServer} disabled={checking}>{checking?'Checking…':'Check server'}</button>
         <button className="btn ghost" onClick={updateUi} disabled={updating}>{updating?'Updating…':'Update UI'}</button>
       </div>
       <div className="small" style={{marginTop:10}}>
+        <div>{serverLocked ? '🔒 URL locked' : '🔓 URL unlocked'}</div>
         {serverStatus ? <div>{serverStatus.ok?'●':'○'} {serverStatus.msg}{serverStatus.at?` • ${new Date(serverStatus.at).toLocaleTimeString()}`:''}</div> : null}
         {bundleStatus?.meta ? <div style={{marginTop:6}}>UI version: {bundleStatus.meta.version || 'bundled'}{bundleStatus.meta.lastChecked ? ` • checked ${new Date(bundleStatus.meta.lastChecked).toLocaleString()}` : ''}</div> : null}
+        {bundleStatus?.manifest?.notes?.length ? <div style={{marginTop:8}}><div style={{fontWeight:600,color:'#fff'}}>What’s new:</div>{bundleStatus.manifest.notes.map((n,i)=><div key={i}>• {n}</div>)}</div> : null}
+        {bundleStatus?.manifest?.history?.length ? <details style={{marginTop:8}}><summary style={{cursor:'pointer'}}>Update history</summary>{bundleStatus.manifest.history.map((h,i)=><div key={i} style={{marginTop:6}}><div style={{color:'#fff'}}>{h.version} {h.date?`• ${h.date}`:''}</div>{(h.notes||[]).map((n,j)=><div key={j}>- {n}</div>)}</div>)}</details> : null}
       </div>
     </div>
 
@@ -200,8 +208,8 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
     <div className="card">
       <div className="section-title">Downloads / Storage</div>
       <div className="item" style={{flexDirection:'column',alignItems:'stretch',gap:8}}>
-        <div className="meta"><div className="title">Download folder name</div><div className="sub">Saved in device Documents folder (native). Example: DiskDrive</div></div>
-        <input className="input" value={state.settings?.downloadDir||'DiskDrive'} onChange={e=>save({ settings:{...state.settings, downloadDir:e.target.value} })} placeholder="DiskDrive" />
+        <div className="meta"><div className="title">Download folder name</div><div className="sub">Saved in device Download folder (native). Example: Download/DiskDrive</div></div>
+        <input className="input" value={state.settings?.downloadDir||'Download'} onChange={e=>save({ settings:{...state.settings, downloadDir:e.target.value} })} placeholder="Download" />
       </div>
       <div className="item"><div className="meta"><div className="title">Local app data</div><div className="sub">History, playlists, downloads metadata stored on device.</div></div>
         <button className="btn ghost" onClick={async()=>{

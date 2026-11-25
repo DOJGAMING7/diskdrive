@@ -29,7 +29,7 @@ export async function checkAndUpdateBundle(serverUrl) {
     if (meta.version === version && await hasCachedBundle()) {
       const next = { ...meta, lastChecked: Date.now(), serverUrl: url }
       await setPref(KEYS.uiBundleMeta, next)
-      return { status: 'up-to-date', version, meta: next }
+      return { status: 'up-to-date', version, meta: next, manifest }
     }
     const bundleRes = await fetch(bundlePath.startsWith('http') ? bundlePath : `${url}/${bundlePath.replace(/^\//,'')}`, { cache: 'no-store' })
     if (!bundleRes.ok) return { status: 'bundle-error', code: bundleRes.status, meta }
@@ -37,7 +37,7 @@ export async function checkAndUpdateBundle(serverUrl) {
     await installBundle(blob, version)
     const next = { version, lastChecked: Date.now(), lastApplied: Date.now(), serverUrl: url }
     await setPref(KEYS.uiBundleMeta, next)
-    return { status: 'updated', version, meta: next }
+    return { status: 'updated', version, meta: next, manifest }
   } catch (e) {
     return { status: 'offline', error: String(e?.message || e), meta }
   }

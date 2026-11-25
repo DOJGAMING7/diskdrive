@@ -55,7 +55,7 @@ export default function App() {
     try {
       setBoot('Loading saved data…')
       const s = await withTimeout(loadState(), 3000, 'load state').catch((e)=>{ console.warn(e); return null })
-      const safe = s || { adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:'watch-later',name:'WATCH LATER',builtIn:true,items:[],updatedAt:Date.now()},{id:'favourites',name:'FAVOURITES',builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,downloadDir:'DiskDrive',serverUrl:'',resolverUrl:'',resolverKey:'',resolverLocked:false} }
+      const safe = s || { adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:'watch-later',name:'WATCH LATER',builtIn:true,items:[],updatedAt:Date.now()},{id:'favourites',name:'FAVOURITES',builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,downloadDir:'Download',serverLocked:false,serverUrl:'',resolverUrl:'',resolverKey:'',resolverLocked:false} }
       const serverUrl = safe?.settings?.serverUrl || ''
       if (serverUrl) {
         setBoot('Checking UI updates…')
@@ -231,7 +231,7 @@ export default function App() {
 
     <nav className="bottom-nav"><div className="nav-inner">{TABS.map(t=>{ const Icon=t.icon; return <button key={t.id} className={`navbtn ${tab===t.id?'active':''}`} onClick={()=>setTab(t.id)}><Icon/><span>{t.label}</span></button> })}</div></nav>
 
-    {playerItem && <Player item={playerItem} queue={playerQueue} onClose={()=>setPlayerItem(null)} onProgress={(src,pos,dur)=>updateHistoryPos(src,pos,dur)} onSelect={(it)=>{ setPlayerItem(it); updateHistoryPos(it.src, it.position||0, it.duration||0) }} />}
+    {playerItem && <Player item={playerItem} queue={playerQueue} onClose={()=>setPlayerItem(null)} onProgress={(src,pos,dur)=>updateHistoryPos(src,pos,dur)} onSelect={(it)=>{ setPlayerItem(it); updateHistoryPos(it.src, it.position||0, it.duration||0) }} showToast={showToast} />}
     {menu && <MenuModal menu={menu} onClose={()=>setMenu(null)} />}
     {confirm && <ConfirmModal confirm={confirm} onClose={()=>setConfirm(null)} />}
     {toast && <div className="toast">{toast}</div>}

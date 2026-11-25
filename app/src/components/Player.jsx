@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { fmtTime } from '../lib/store.js'
 
-export default function Player({ item, queue=[], onClose, onProgress, onSelect }) {
+export default function Player({ item, queue=[], onClose, onProgress, onSelect, showToast }) {
   const wrapRef = useRef(null)
   const videoRef = useRef(null)
   const hideTimer = useRef(null)
@@ -20,7 +20,12 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect }
   const [loading, setLoading] = useState(true)
   const [useDirect, setUseDirect] = useState(false)
   const [showQueue, setShowQueue] = useState(false)
+  const [zoom, setZoom] = useState('contain') // contain|cover|fill
+  const [fsMode, setFsMode] = useState('auto') // auto|landscape|portrait
+  const [quality, setQuality] = useState('auto')
+  const [pipMsg, setPipMsg] = useState('')
   const touchY = useRef(null)
+  const seekingRef = useRef(false)
   const idx = Math.max(0, queue.findIndex(q => q.id===item.id || (q.src && q.src===item.src)))
 
   useEffect(() => { setUseDirect(false) }, [item?.id, item?.src, item?.directUrl])
@@ -65,15 +70,35 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect }
   const poke = (force=false) => { setShow(true); clearTimeout(hideTimer.current); hideTimer.current = setTimeout(()=>{ if(!force) setShow(false) }, 2600) }
   const togglePlay = () => { const v=videoRef.current; if(!v) return; if(v.paused) v.play().catch(()=>{}); else v.pause(); poke() }
   const seekBy = (d) => { const v=videoRef.current; if(!v) return; v.currentTime = Math.min(Math.max(0, (v.currentTime||0)+d), v.duration||0); setShow(true); clearTimeout(hideTimer.current); hideTimer.current = setTimeout(()=>setShow(false), 1800) }
-  const seekTo = (e) => { const v=videoRef.current; if(!v||!duration) return; const r=e.currentTarget.getBoundingClientRect(); const x=('touches' in e?e.touches[0].clientX:e.clientX)-r.left; const pct=Math.min(1,Math.max(0,x/r.width)); v.currentTime=pct*duration; poke() }
+  const seekToClientX = (clientX, target) => {
+    const v = videoRef.current; if (!v || !duration) return
+    const r = target.getBoundingClientRect()
+    const x = Math.min(Math.max(0, clientX - r.left), r.width)
+    v.currentTime = (x / r.width) * duration
+    setCurrentTime(v.currentTime)
+  }
+  const onSeekPointerDown = (e) => { seekingRef.current = true; e.currentTarget.setPointerCapture?.(e.pointerId); seekToClientX(e.clientX, e.currentTarget); poke() }
+  const onSeekPointerMove = (e) => { if (!seekingRef.current) return; seekToClientX(e.clientX, e.currentTarget) }
+  const onSeekPointerUp = (e) => { if (!seekingRef.current) return; seekingRef.current = false; seekToClientX(e.clientX, e.currentTarget); poke() }
+  const applyOrientation = async () => {
+    try {
+      if (fsMode === 'landscape') await (screen.orientation?.lock?.('landscape-primary') || screen.orientation?.lock?.('landscape'))
+      else if (fsMode === 'portrait') await (screen.orientation?.lock?.('portrait-primary') || screen.orientation?.lock?.('portrait'))
+      else {
+        const v = videoRef.current
+        const isLandscapeVideo = (v?.videoWidth||0) >= (v?.videoHeight||0)
+        await (screen.orientation?.lock?.(isLandscapeVideo ? 'landscape-primary' : 'portrait-primary'))
+      }
+    } catch {}
+  }
   const toggleFs = async () => {
     try {
       const el = wrapRef.current
-      if (!document.fullscreenElement) {
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
         if (el?.requestFullscreen) await el.requestFullscreen({ navigationUI: 'hide' }).catch(()=>el.requestFullscreen())
+        else if (el?.webkitRequestFullscreen) el.webkitRequestFullscreen()
         else if (videoRef.current?.webkitEnterFullscreen) videoRef.current.webkitEnterFullscreen()
-        else if (videoRef.current?.webkitRequestFullscreen) videoRef.current.webkitRequestFullscreen()
-        try { await (screen.orientation?.lock?.('landscape-primary') || screen.orientation?.lock?.('landscape')) } catch {}
+        await applyOrientation()
       } else {
         try { await screen.orientation?.unlock?.() } catch {}
         if (document.exitFullscreen) await document.exitFullscreen()
@@ -88,33 +113,33 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect }
       if (document.pictureInPictureElement) await document.exitPictureInPicture()
       else if (v.requestPictureInPicture) await v.requestPictureInPicture()
       else if (v.webkitSetPresentationMode) v.webkitSetPresentationMode(v.webkitPresentationMode === 'picture-in-picture' ? 'inline' : 'picture-in-picture')
-      else setErr('Picture-in-Picture not supported on this device/browser')
-    } catch { setErr('Picture-in-Picture not supported on this device/browser') }
+      else { setPipMsg('Picture-in-Picture not supported on this device/browser'); setTimeout(()=>setPipMsg(''), 2500) }
+    } catch { setPipMsg('Picture-in-Picture not supported on this device/browser'); setTimeout(()=>setPipMsg(''), 2500) }
     poke()
   }
 
   const onTapZone = (side) => {
     if (lockedUI) { setShow(s=>!s); return }
+    if (hold2x) return
     const nowTs = Date.now()
-    if (lastTap.current.side===side && nowTs-lastTap.current.t < 300) {
+    if (side !== 'center' && lastTap.current.side===side && nowTs-lastTap.current.t < 300) {
       seekBy(side==='left' ? -10 : 10)
       lastTap.current = { t:0, side:null }
-      poke()
       return
     }
     lastTap.current = { t:nowTs, side }
-    setTimeout(()=>{ if (Date.now()-lastTap.current.t >= 280 && lastTap.current.side===side) { togglePlay(); lastTap.current={t:0,side:null} } }, 290)
+    setTimeout(()=>{ if (Date.now()-lastTap.current.t >= 280 && lastTap.current.side===side) { setShow(s=>!s); lastTap.current={t:0,side:null} } }, 290)
   }
 
-  const onPointerDown = () => { if (lockedUI) return; clearTimeout(holdTimer.current); holdTimer.current = setTimeout(()=>{ setHold2x(true); setShow(false) }, 350) }
+  const onPointerDown = (side) => { if (lockedUI) return; if (side !== 'right') return; clearTimeout(holdTimer.current); holdTimer.current = setTimeout(()=>{ setHold2x(true); setShow(false) }, 350) }
   const onPointerUp = () => { clearTimeout(holdTimer.current); if (hold2x) { setHold2x(false); poke() } }
 
   return <div className="player-wrap" ref={wrapRef} style={{position:'fixed',inset:0,background:'#000',zIndex:300,color:'#fff'}}>
-    <video ref={videoRef} playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:'contain',background:'#000'}} onClick={poke} />
+    <video ref={videoRef} playsInline preload="metadata" style={{width:'100%',height:'100%',objectFit:zoom,background:'#000'}} />
     <div style={{position:'absolute',inset:0,display:'grid',gridTemplateColumns:'1fr 1fr 1fr'}} onMouseMove={poke} onTouchStart={(e)=>{ poke(); touchY.current = e.touches?.[0]?.clientY ?? null }} onTouchEnd={(e)=>{ const endY = e.changedTouches?.[0]?.clientY; if (touchY.current!=null && endY!=null && touchY.current-endY > 70 && queue.length>1) setShowQueue(true); touchY.current=null }}>
-      <div onClick={()=>onTapZone('left')} onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerLeave={onPointerUp} />
-      <div onClick={()=>onTapZone('center')} onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerLeave={onPointerUp} />
-      <div onClick={()=>onTapZone('right')} onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerLeave={onPointerUp} />
+      <div onClick={()=>onTapZone('left')} onPointerDown={()=>onPointerDown('left')} onPointerUp={onPointerUp} onPointerLeave={onPointerUp} />
+      <div onClick={()=>onTapZone('center')} onPointerDown={()=>onPointerDown('center')} onPointerUp={onPointerUp} onPointerLeave={onPointerUp} />
+      <div onClick={()=>onTapZone('right')} onPointerDown={()=>onPointerDown('right')} onPointerUp={onPointerUp} onPointerLeave={onPointerUp} />
     </div>
 
     {(show || !playing || loading || err) && <div style={{position:'absolute',inset:0,background:'linear-gradient(to bottom,rgba(0,0,0,.65),rgba(0,0,0,0) 28%,rgba(0,0,0,0) 65%,rgba(0,0,0,.78))',pointerEvents:'none'}} />}
@@ -142,11 +167,13 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect }
             {(item.downloadUrl || item.directUrl || item.src) && <a className="btn ghost" href={item.downloadUrl || item.directUrl || item.src} target="_blank" rel="noopener noreferrer" download={item.name||'video.mp4'}>Download</a>}
           </div>
         </div>}
+        {pipMsg && <div style={{marginBottom:10,fontSize:13}}>{pipMsg}</div>}
         {loading && !err && <div style={{marginBottom:10,fontSize:13}}>Loading…</div>}
-        <div style={{height:28,display:'flex',alignItems:'center',cursor:'pointer'}} onClick={seekTo}>
-          <div style={{position:'relative',width:'100%',height:4,background:'rgba(255,255,255,.2)',borderRadius:999}}>
+        <div style={{height:34,display:'flex',alignItems:'center',cursor:'pointer',touchAction:'none'}} onPointerDown={onSeekPointerDown} onPointerMove={onSeekPointerMove} onPointerUp={onSeekPointerUp} onPointerCancel={onSeekPointerUp}>
+          <div style={{position:'relative',width:'100%',height:6,background:'rgba(255,255,255,.2)',borderRadius:999}}>
             <div style={{position:'absolute',left:0,top:0,bottom:0,width:`${buffered}%`,background:'rgba(255,255,255,.28)',borderRadius:999}} />
             <div style={{position:'absolute',left:0,top:0,bottom:0,width:`${duration?(currentTime/duration)*100:0}%`,background:'#fff',borderRadius:999}} />
+            <div style={{position:'absolute',top:'50%',left:`${duration?(currentTime/duration)*100:0}%`,width:14,height:14,borderRadius:999,background:'#fff',transform:'translate(-50%,-50%)',boxShadow:'0 0 0 3px rgba(255,255,255,.15)'}} />
           </div>
         </div>
         <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#ddd',marginBottom:10}}><span>{fmtTime(currentTime)}</span><span>{fmtTime(duration)}</span></div>
@@ -154,6 +181,15 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect }
           <div className="row">
             <select className="input" style={{width:88,padding:'8px 10px'}} value={speed} onChange={e=>setSpeed(Number(e.target.value))}>
               {[0.5,0.75,1,1.25,1.5,2].map(s=><option key={s} value={s}>{s}x</option>)}
+            </select>
+            <select className="input" style={{width:92,padding:'8px 10px'}} value={quality} onChange={e=>{ setQuality(e.target.value); (showToast?showToast('Quality switching depends on source; Auto used'):null) }}>
+              {['auto','1080p','720p','480p','360p'].map(q=><option key={q} value={q}>{q}</option>)}
+            </select>
+            <select className="input" style={{width:92,padding:'8px 10px'}} value={zoom} onChange={e=>setZoom(e.target.value)}>
+              <option value="contain">Fit</option><option value="cover">Zoom</option><option value="fill">Stretch</option>
+            </select>
+            <select className="input" style={{width:110,padding:'8px 10px'}} value={fsMode} onChange={e=>setFsMode(e.target.value)}>
+              <option value="auto">FS Auto</option><option value="landscape">FS Horizontal</option><option value="portrait">FS Vertical</option>
             </select>
             <button className="btn ghost" onClick={togglePiP}>PiP</button>
             {queue.length>1 && <button className="btn ghost" onClick={()=>setShowQueue(v=>!v)}>Queue</button>}

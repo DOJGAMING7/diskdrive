@@ -5,11 +5,13 @@ const DEFAULT_SETTINGS = {
   lockDelaySec: 15,
   pinEnabled: false,
   lastSaveDir: null,
-  downloadDir: 'DiskDrive',
+  downloadDir: 'Download',
   serverUrl: '',
+  serverLocked: false,
   resolverUrl: '',
   resolverKey: '',
   resolverLocked: false,
+  updateLog: [],
 }
 const DEFAULT_PLAYLISTS = [
   { id: 'watch-later', name: 'WATCH LATER', builtIn: true, items: [], updatedAt: now() },

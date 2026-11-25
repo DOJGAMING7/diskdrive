@@ -33,33 +33,44 @@ async function getBlob(item) {
   throw lastErr || new Error('No file data')
 }
 
-export async function saveToPhone(item, dirName = 'DiskDrive') {
+async function resolveSaveDir(dirName = 'Download') {
+  const folder = String(dirName || 'Download').replace(/[\\/:*?"<>|]+/g, '').trim() || 'Download'
+  const candidates = [
+    { directory: Directory.ExternalStorage, path: `Download/${folder}` },
+    { directory: Directory.Documents, path: folder },
+  ]
+  for (const c of candidates) {
+    try { await Filesystem.mkdir({ path: c.path, directory: c.directory, recursive:true }); return c } catch {}
+  }
+  return { directory: Directory.Documents, path: folder }
+}
+
+export async function saveToPhone(item, dirName = 'Download') {
   const name = item.fileName || item.name || 'video.mp4'
-  const folder = String(dirName || 'DiskDrive').replace(/[\\/:*?"<>|]+/g, '').trim() || 'DiskDrive'
   if (!Capacitor.isNativePlatform()) {
     try {
       const blob = await getBlob(item)
       downloadBlob(blob, name)
-      return 'saved'
+      return { status:'saved' }
     } catch {
       const url = item?.downloadUrl || item?.directUrl || item?.src
-      if (url) { window.open(url, '_blank', 'noopener,noreferrer'); return 'opened' }
+      if (url) { window.open(url, '_blank', 'noopener,noreferrer'); return { status:'opened' } }
       throw new Error('No file data')
     }
   }
-  try { await Filesystem.mkdir({ path: folder, directory: Directory.Documents, recursive:true }) } catch {}
-  const dest = `${folder}/${name}`
+  const destDir = await resolveSaveDir(dirName)
+  const dest = `${destDir.path}/${name}`
   const remoteUrl = item?.downloadUrl || item?.directUrl || (!item?.nativePath ? item?.src : null)
   if (remoteUrl && /^https?:/i.test(remoteUrl)) {
     try {
-      const res = await Filesystem.downloadFile({ url: remoteUrl, path: dest, directory: Directory.Documents, progress: false })
-      if (res?.path || res) return 'saved'
+      const res = await Filesystem.downloadFile({ url: remoteUrl, path: dest, directory: destDir.directory, progress: false })
+      if (res?.path || res) return { status:'saved', path: dest, directory: String(destDir.directory) }
     } catch {}
   }
   const blob = await getBlob(item)
   const b64 = await blobToBase64(blob)
-  await Filesystem.writeFile({ path: dest, data: b64, directory: Directory.Documents, recursive: true })
-  return 'saved'
+  await Filesystem.writeFile({ path: dest, data: b64, directory: destDir.directory, recursive: true })
+  return { status:'saved', path: dest, directory: String(destDir.directory) }
 }
 
 export async function shareItem(item) {
