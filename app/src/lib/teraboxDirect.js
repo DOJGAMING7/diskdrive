@@ -211,7 +211,8 @@ async function getSharedDownload(file, info, cookie, host='www.terabox.com', sur
 
 function isCookieError(errno, msg='') {
   const m = String(msg || '').toLowerCase()
-  return [-6,-1,1,2,4,5,112].includes(Number(errno)) || m.includes('cookie') || m.includes('ndus') || m.includes('auth') || m.includes('login')
+  // errno=2 is often param mismatch; errno=1 can be generic failure - do not hard-fail as cookie.
+  return [-6, -1, 4, 5, 112, 910000001].includes(Number(errno)) || m.includes('cookie expired') || m.includes('login required') || m.includes('ndus expired')
 }
 
 async function resolveViaShareApi(url, cookie) {
@@ -357,9 +358,9 @@ export async function resolveTeraboxDirect(url, { cookie='', ndus='' } = {}) {
     debug.push(`proxy:${String(e?.message || e).slice(0, 120)}`)
   }
 
-  const hasCookieErr = debug.some(d => /errno=(?:-6|-1|4|5|112)\b/i.test(d))
-  if (hasCookieErr) throw new Error(`Terabox cookie/auth failed. Update NDUS in Settings. ${debug.join(' | ').slice(0,240)}`)
+  const hasCookieErr = debug.some(d => /errno=(?:-6|-1|4|5|112|910000001)\b/i.test(d))
+  if (hasCookieErr) throw new Error(`Terabox cookie/auth failed. Update NDUS in Settings. ${debug.join(' | ').slice(0,260)}`)
   const hasParamErr = debug.some(d => /errno=2\b/i.test(d))
-  if (hasParamErr) throw new Error(`Terabox resolve failed (errno=2 param/auth). Cookie may be invalid/expired or Terabox blocked this request. Re-copy NDUS from browser and retry. ${debug.join(' | ').slice(0,240)}`)
-  throw new Error(`Could not resolve direct Terabox link. ${debug.join(' | ').slice(0, 300)}`)
+  if (hasParamErr) throw new Error(`Terabox resolve failed (errno=2). Cookie may be invalid, or request params blocked on this device. Re-copy full browser cookie/NDUS and retry. ${debug.join(' | ').slice(0,260)}`)
+  throw new Error(`Could not resolve direct Terabox link. ${debug.join(' | ').slice(0, 320)}`)
 }
