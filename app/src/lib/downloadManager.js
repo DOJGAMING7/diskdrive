@@ -28,7 +28,8 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
   function isActive(j) { return j && ['queued','downloading','resolving'].includes(j.status) }
 
   async function run(job) {
-    job.status = 'downloading'; job.error = ''; emit()
+    job.status = 'downloading'; job.error = ''; job.startedAt = Date.now(); job.receivedBytes = 0; job.totalBytes = job.size || 0; job.speedBps = 0; job.etaSec = null;
+    emit()
     const ctrl = new AbortController()
     controllers.set(job.id, ctrl)
     try {
@@ -44,7 +45,18 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
         const tryNative = async (dlUrl) => {
           let lastPct = 0
           let listener
-          try { listener = await Filesystem.addListener('progress', (p) => { if (p?.url !== dlUrl) return; const pct = p.contentLength ? Math.round((p.bytes / p.contentLength) * 100) : job.progress; if (pct !== lastPct) { lastPct = pct; job.progress = pct; emit() } }) } catch {}
+          try { listener = await Filesystem.addListener('progress', (p) => {
+            if (p?.url !== dlUrl) return
+            const total = Number(p.contentLength || job.totalBytes || 0)
+            const bytes = Number(p.bytes || 0)
+            if (total) job.totalBytes = total
+            job.receivedBytes = bytes
+            const elapsed = (Date.now() - (job.startedAt||Date.now())) / 1000
+            job.speedBps = elapsed > 0 ? bytes / elapsed : 0
+            job.etaSec = (total && job.speedBps > 0) ? Math.max(0, Math.round((total - bytes) / job.speedBps)) : null
+            const pct = total ? Math.round((bytes / total) * 100) : job.progress
+            if (pct !== lastPct) { lastPct = pct; job.progress = pct; emit() } else { emit() }
+          }) } catch {}
           try {
             const res = await Filesystem.downloadFile({ url: dlUrl, path: dest, directory: destDir.directory, progress: true })
             if (!res?.path && !res) throw new Error('Download failed')
@@ -69,15 +81,15 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
         }
         if (job.status === 'cancelled') throw new DOMException('Aborted','AbortError')
         if (!ok) throw lastErr || new Error('Download failed')
+        if (job.status === 'cancelled') throw new DOMException('Aborted','AbortError')
         job.progress = 100; job.status = 'done'; job.savedPath = dest; job.savedDirectory = String(destDir.directory)
+        job.nativePath = dest; job.kind = 'local'; job.stored = 'native-external'
         try {
           const uri = await Filesystem.getUri({ path: dest, directory: destDir.directory })
           job.nativeUri = uri?.uri || ''
-          job.srcLocal = Capacitor.convertFileSrc(job.nativeUri)
-        } catch {}
-        job.stored = 'native-external'
-        job.kind = 'local' ; job.nativePath = dest
-        try { const uri = await Filesystem.getUri({ path: dest, directory: destDir.directory }); job.localSrc = Capacitor.convertFileSrc(uri.uri); job.stored = 'native-download' } catch { job.localSrc = job.src; job.stored = 'downloaded' }
+          job.srcLocal = job.nativeUri ? Capacitor.convertFileSrc(job.nativeUri) : job.src
+        } catch { job.srcLocal = job.src }
+        try { const st = await Filesystem.stat({ path: dest, directory: destDir.directory }); if (st?.size) job.size = Number(st.size) } catch {}
       } else {
         const doWeb = async (dlUrl) => {
           const res = await fetch(dlUrl, { signal: ctrl.signal })
@@ -87,18 +99,23 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
             const reader = res.body.getReader()
             const chunks = []
             let received = 0
+            let lastT = Date.now(), lastB = 0
             while (true) {
               if (ctrl.signal.aborted) throw new DOMException('Aborted','AbortError')
               const { done, value } = await reader.read()
               if (done) break
               chunks.push(value)
               received += value.length
+              job.receivedBytes = received; job.totalBytes = total
+              const nowT = Date.now(); const dt = (nowT - lastT) / 1000
+              if (dt >= 0.5) { job.speedBps = (received - lastB) / dt; lastT = nowT; lastB = received }
+              job.etaSec = job.speedBps > 0 ? Math.max(0, Math.round((total - received) / job.speedBps)) : null
               job.progress = Math.min(99, Math.round((received / total) * 100))
               emit()
             }
             return new Blob(chunks, { type: res.headers.get('content-type') || 'video/mp4' })
           }
-          return await res.blob()
+          const b = await res.blob(); job.totalBytes = b.size; job.receivedBytes = b.size; return b
         }
         let blob
         let lastErr
@@ -146,14 +163,28 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
   return {
     enqueue(item, dirName='Download') {
       const k = keyFor(item)
-      const existing = [...jobs.values()].find(j => isActive(j) && keyFor(j) === k)
-      if (existing) return { id: existing.id, deduped: true, status: existing.status }
+      const existingActive = [...jobs.values()].find(j => isActive(j) && keyFor(j) === k)
+      if (existingActive) return { id: existingActive.id, deduped: true, status: existingActive.status }
+      // reuse failed/cancelled/done job entry for same key to avoid duplicate queue windows
+      const reuse = item?.id && jobs.get(item.id) ? jobs.get(item.id) : [...jobs.values()].find(j => !isActive(j) && keyFor(j) === k)
+      if (reuse) {
+        Object.assign(reuse, {
+          ...reuse,
+          title: item.title || item.name || reuse.title, name: item.name || reuse.name, fileName: item.fileName || item.name || reuse.fileName,
+          src: item.src || reuse.src, directUrl: item.directUrl || reuse.directUrl, downloadUrl: item.downloadUrl || reuse.downloadUrl,
+          proxyDownloadUrl: item.proxyDownloadUrl || reuse.proxyDownloadUrl, proxyStreamUrl: item.proxyStreamUrl || reuse.proxyStreamUrl, sourceUrl: item.sourceUrl || reuse.sourceUrl,
+          dirName, progress: 0, status: 'queued', error: '', startedAt: null, receivedBytes: 0, speedBps: 0, etaSec: null, savedPath: null, nativePath: null, nativeUri: null, srcLocal: null,
+        })
+        emit(); pump()
+        return { id: reuse.id, deduped: false, status: reuse.status, reused: true }
+      }
       const id = uid()
       const job = {
         id, itemId: item.id, title: item.title || item.name, name: item.name, fileName: item.fileName || item.name || 'video.mp4',
         src: item.src, directUrl: item.directUrl, downloadUrl: item.downloadUrl, proxyDownloadUrl: item.proxyDownloadUrl, proxyStreamUrl: item.proxyStreamUrl, sourceUrl: item.sourceUrl,
         provider: item.provider, kind: item.kind, thumb: item.thumb, thumbPath: item.thumbPath, date: item.date, size: item.size, sizeHuman: item.sizeHuman,
         dirName, progress: 0, status: 'queued', error: '', createdAt: Date.now(),
+        receivedBytes: 0, totalBytes: Number(item.size||0)||0, speedBps: 0, etaSec: null,
       }
       jobs.set(id, job)
       emit(); pump()

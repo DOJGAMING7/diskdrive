@@ -64,9 +64,10 @@ export default function App() {
             provider: job.provider || 'TERABOX',
             kind: 'local',
             src: localSrc,
-            nativePath: job.nativePath || null,
+            nativePath: job.nativePath || job.savedPath || null,
             directUrl: job.directUrl, downloadUrl: job.downloadUrl, sourceUrl: job.sourceUrl,
-            thumb: job.thumb, thumbPath: job.thumbPath, date: job.date, size: job.size, sizeHuman: job.sizeHuman,
+            thumb: job.thumb, thumbPath: job.thumbPath, date: job.date,
+            size: Number(job.totalBytes || job.size || 0) || 0, sizeHuman: job.sizeHuman,
             downloadedAt: Date.now(), savedPath: job.savedPath, savedDirectory: job.savedDirectory, stored: job.stored || 'downloaded'
           }
           addDownload(item)

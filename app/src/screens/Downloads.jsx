@@ -5,6 +5,8 @@ import { importLocalFile, deleteNativeFile } from '../lib/files.js'
 import { saveToPhone as exportToPhone } from '../lib/export.js'
 import { makeZip } from '../lib/zip.js'
 
+function fmtEta(sec){ sec=Math.max(0,Math.floor(sec||0)); const m=Math.floor(sec/60), s=sec%60; if(m>=60){const h=Math.floor(m/60);return `${h}h ${m%60}m`} return m?`${m}m ${s}s`:`${s}s` }
+
 export default function Downloads({ state, save, showToast, openPlayer, setMenu, setConfirm, downloadJobs=[], enqueueDownload, cancelDownload, removeDownloadJob, clearDoneDownloads }) {
   const [q, setQ] = useState('')
   const [provider, setProvider] = useState('ALL')
@@ -82,7 +84,16 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
       <div className="list">
         {downloadJobs.slice().reverse().map(job => <div className="item" key={job.id} style={{flexDirection:'column',alignItems:'stretch'}}>
           <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center'}}>
-            <div style={{minWidth:0,flex:1}}><div className="title" style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{job.title||job.name}</div><div className="sub">{job.status} {job.progress?`• ${job.progress}%`:''} {job.error?`• ${job.error}`:''}</div></div>
+            <div style={{minWidth:0,flex:1}}>
+              <div className="title" style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{job.title||job.name}</div>
+              <div className="sub">
+                {job.status} {job.progress?`• ${job.progress}%`:''}
+                {job.speedBps ? ` • ${(job.speedBps/1048576).toFixed(2)} MB/s` : ''}
+                {job.etaSec!=null && ['queued','downloading','resolving'].includes(job.status) ? ` • ETA ${fmtEta(job.etaSec)}` : ''}
+                {job.totalBytes ? ` • ${fmtBytes(job.receivedBytes||0)} / ${fmtBytes(job.totalBytes)}` : ''}
+                {job.error?` • ${job.error}`:''}
+              </div>
+            </div>
             <div className="row" style={{gap:6,flex:'0 0 auto'}}>
               {job.savedPath && <div className="sub">Saved</div>}
               {['queued','downloading','resolving'].includes(job.status) && <button className="btn ghost" style={{padding:'6px 10px',minHeight:32}} onClick={()=>cancelDownload?.(job.id)}>Cancel</button>}
