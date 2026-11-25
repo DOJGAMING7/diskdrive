@@ -13,6 +13,9 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
   const [pinMode, setPinMode] = useState(null)
   const [pin, setPin] = useState('')
   const [pinErr, setPinErr] = useState('')
+  const [clearStep, setClearStep] = useState(0)
+  const [conn, setConn] = useState(null)
+  const [connBusy, setConnBusy] = useState(false)
 
   const serverUrl = state.settings?.serverUrl?.trim() || ''
   const resolverLocked = !!state.settings?.resolverLocked
@@ -51,8 +54,9 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
 
   const checkResolver = async () => {
     const base = resolverUrl.trim().replace(/\/+$/, '')
-    if (!base) { setResolverStatus({ ok:false, msg:'Set Resolver URL first' }); return }
+    if (!base) { setResolverStatus({ ok:false, msg:'Set Resolver URL first' }); return null }
     setResolverChecking(true)
+    const t0 = performance.now()
     try {
       const healthUrl = base.endsWith('/resolve') ? base.slice(0, -'/resolve'.length) + '/health' : base + '/health'
       const headers = {}
@@ -60,12 +64,66 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
       if (k) headers['X-Resolver-Key'] = k
       const res = await fetch(healthUrl, { method:'GET', headers, cache:'no-store' })
       const data = await res.json().catch(()=>null)
-      if (res.ok && (data?.ok || data?.service)) setResolverStatus({ ok:true, msg:`Connected (${res.status})` })
-      else setResolverStatus({ ok:false, msg:`Error (${res.status})` })
+      const ms = Math.round(performance.now()-t0)
+      const ok = res.ok && (data?.ok || data?.service)
+      const out = { ok, msg:`${ok?'Connected':'Error'} (${res.status}) • ${ms}ms`, ms }
+      setResolverStatus(out)
+      setResolverChecking(false)
+      return out
     } catch (e) {
-      setResolverStatus({ ok:false, msg:'Not reachable' })
+      const out = { ok:false, msg:`Not reachable • ${Math.round(performance.now()-t0)}ms` }
+      setResolverStatus(out)
+      setResolverChecking(false)
+      return out
     }
-    setResolverChecking(false)
+  }
+
+  const checkConnectivity = async () => {
+    setConnBusy(true)
+    const out = {}
+    const t0 = performance.now()
+    try { const r = await fetch('https://api.cloudflare.com/cdn-cgi/trace', {cache:'no-store'}); out.cloudflare = { ok:r.ok, msg: r.ok?`OK ${Math.round(performance.now()-t0)}ms`:`${r.status}` } }
+    catch { out.cloudflare = { ok:false, msg:'Unreachable' } }
+    const tr = performance.now()
+    out.render = await (async()=>{ try {
+      const base = resolverUrl.trim().replace(/\/+$/, '')
+      if (!base) return { ok:false, msg:'Resolver URL not set' }
+      const healthUrl = base.endsWith('/resolve') ? base.slice(0,-'/resolve'.length)+'/health' : base+'/health'
+      const headers = {}; const k=resolverKey.trim(); if(k) headers['X-Resolver-Key']=k
+      const r = await fetch(healthUrl, {headers, cache:'no-store'})
+      const d = await r.json().catch(()=>null)
+      return { ok:r.ok && (d?.ok||d?.service), msg:`${r.ok?'OK':'Err'} ${Math.round(performance.now()-tr)}ms` }
+    } catch { return { ok:false, msg:`Unreachable ${Math.round(performance.now()-tr)}ms` } } })()
+    const tu = performance.now()
+    try { const r = await fetch(serverUrl.replace(/\/$/,'') + '/ui-manifest.json', {cache:'no-store'}); out.ui = { ok:r.ok, msg: r.ok?`OK ${Math.round(performance.now()-tu)}ms`:`${r.status}` } }
+    catch { out.ui = { ok:false, msg: serverUrl ? 'Unreachable' : 'Not set' } }
+    setConn(out); setConnBusy(false)
+  }
+
+  const exportBackup = async () => {
+    try {
+      const data = { v:1, exportedAt:new Date().toISOString(), state: { history: state.history||[], playlists: state.playlists||[], downloads: state.downloads||[], settings: state.settings||{} } }
+      const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'})
+      const a = document.createElement('a'); const url = URL.createObjectURL(blob)
+      a.href=url; a.download=`diskdrive-backup-${Date.now()}.json`; a.click(); setTimeout(()=>URL.revokeObjectURL(url), 5000)
+      showToast('Backup exported')
+    } catch { showToast('Backup export failed') }
+  }
+
+  const importBackup = async (e) => {
+    const f = e.target.files?.[0]; e.target.value=''
+    if (!f) return
+    try {
+      const data = JSON.parse(await f.text())
+      const st = data?.state || data
+      await save({
+        history: Array.isArray(st.history)?st.history:[],
+        playlists: Array.isArray(st.playlists)?st.playlists:state.playlists,
+        downloads: Array.isArray(st.downloads)?st.downloads:[],
+        settings: { ...state.settings, ...(st.settings||{}) },
+      })
+      showToast('Backup restored')
+    } catch { showToast('Invalid backup file') }
   }
 
   const enablePin = () => { setPin(''); setPinErr(''); setPinMode('set') }
@@ -140,8 +198,40 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
     </div>
 
     <div className="card">
-      <div className="section-title">Storage</div>
-      <div className="item"><div className="meta"><div className="title">Local app data</div><div className="sub">History, playlists, downloads metadata stored on device.</div></div><button className="btn ghost" onClick={async()=>{ await save({ history:[], playlists: state.playlists.filter(p=>p.builtIn).map(p=>({...p,items:[]})), downloads:[] }); showToast('Local data cleared') }}>Clear</button></div>
+      <div className="section-title">Downloads / Storage</div>
+      <div className="item" style={{flexDirection:'column',alignItems:'stretch',gap:8}}>
+        <div className="meta"><div className="title">Download folder name</div><div className="sub">Saved in device Documents folder (native). Example: DiskDrive</div></div>
+        <input className="input" value={state.settings?.downloadDir||'DiskDrive'} onChange={e=>save({ settings:{...state.settings, downloadDir:e.target.value} })} placeholder="DiskDrive" />
+      </div>
+      <div className="item"><div className="meta"><div className="title">Local app data</div><div className="sub">History, playlists, downloads metadata stored on device.</div></div>
+        <button className="btn ghost" onClick={async()=>{
+          if (clearStep===0) { setClearStep(1); showToast('Tap Clear again to confirm'); setTimeout(()=>setClearStep(0), 4000); return }
+          if (clearStep===1) { setClearStep(2); showToast('Final confirm: tap Clear once more'); setTimeout(()=>setClearStep(0), 4000); return }
+          await save({ history:[], playlists: (state.playlists||[]).filter(p=>p.builtIn).map(p=>({...p,items:[]})), downloads:[] }); setClearStep(0); showToast('Local data cleared')
+        }}>{clearStep===0?'Clear':clearStep===1?'Confirm':'Final clear'}</button>
+      </div>
+      <div className="item"><div className="meta"><div className="title">Backup</div><div className="sub">Export/restore history, playlists, downloads metadata, settings.</div></div>
+        <div className="row" style={{gap:8}}>
+          <button className="btn ghost" onClick={exportBackup}>Export</button>
+          <label className="btn ghost" style={{cursor:'pointer'}}>Restore<input type="file" accept="application/json" hidden onChange={importBackup}/></label>
+        </div>
+      </div>
+    </div>
+
+    <div className="card">
+      <div className="section-title">Connectivity check</div>
+      <p className="small" style={{marginTop:0}}>Check Cloudflare, Render resolver, and UI server response.</p>
+      <button className="btn ghost" onClick={checkConnectivity} disabled={connBusy}>{connBusy?'Checking…':'Check all connections'}</button>
+      {conn && <div className="small" style={{marginTop:10}}>
+        <div>{conn.cloudflare?.ok?'●':'○'} Cloudflare: {conn.cloudflare?.msg}</div>
+        <div>{conn.render?.ok?'●':'○'} Render/Resolver: {conn.render?.msg}</div>
+        <div>{conn.ui?.ok?'●':'○'} UI Server: {conn.ui?.msg}</div>
+      </div>}
+    </div>
+
+    <div className="card">
+      <div className="section-title">App controls</div>
+      <div className="item"><div className="meta"><div className="title">Restart app</div><div className="sub">Reloads UI bundle and app state. Useful after UI update.</div></div><button className="btn ghost" onClick={()=>{ try { sessionStorage.clear() } catch {} window.location.reload() }}>Restart</button></div>
     </div>
 
     <div className="card">

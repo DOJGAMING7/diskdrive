@@ -5,6 +5,7 @@ const DEFAULT_SETTINGS = {
   lockDelaySec: 15,
   pinEnabled: false,
   lastSaveDir: null,
+  downloadDir: 'DiskDrive',
   serverUrl: '',
   resolverUrl: '',
   resolverKey: '',

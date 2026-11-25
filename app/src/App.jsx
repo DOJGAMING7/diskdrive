@@ -32,7 +32,7 @@ export default function App() {
   const [bootMsg, setBootMsg] = useState('Loading…')
   const [tab, setTab] = useState('home')
   const [toast, setToast] = useState('')
-  const [state, setState] = useState({ adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:"watch-later",name:"WATCH LATER",builtIn:true,items:[],updatedAt:Date.now()},{id:"favourites",name:"FAVOURITES",builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,serverUrl:"",resolverUrl:"",resolverKey:"",resolverLocked:false} })
+  const [state, setState] = useState({ adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:"watch-later",name:"WATCH LATER",builtIn:true,items:[],updatedAt:Date.now()},{id:"favourites",name:"FAVOURITES",builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,downloadDir:"DiskDrive",serverUrl:"",resolverUrl:"",resolverKey:"",resolverLocked:false} })
   const [adminInput, setAdminInput] = useState('')
   const [adminErr, setAdminErr] = useState('')
   const [adminAttempts, setAdminAttempts] = useState(0)
@@ -45,6 +45,7 @@ export default function App() {
   const [menu, setMenu] = useState(null)
   const [confirm, setConfirm] = useState(null)
   const [bundleStatus, setBundleStatus] = useState(null)
+  const [resolveState, setResolveState] = useState({ provider:'AUTO', link:'', busy:false, progress:{ active:false,total:0,done:0,current:'',errors:[] }, resolvedItems:[] })
   const lockTimer = useRef(null)
   const lastActive = useRef(Date.now())
 
@@ -54,7 +55,7 @@ export default function App() {
     try {
       setBoot('Loading saved data…')
       const s = await withTimeout(loadState(), 3000, 'load state').catch((e)=>{ console.warn(e); return null })
-      const safe = s || { adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:'watch-later',name:'WATCH LATER',builtIn:true,items:[],updatedAt:Date.now()},{id:'favourites',name:'FAVOURITES',builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,serverUrl:'',resolverUrl:'',resolverKey:'',resolverLocked:false} }
+      const safe = s || { adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:'watch-later',name:'WATCH LATER',builtIn:true,items:[],updatedAt:Date.now()},{id:'favourites',name:'FAVOURITES',builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,downloadDir:'DiskDrive',serverUrl:'',resolverUrl:'',resolverKey:'',resolverLocked:false} }
       const serverUrl = safe?.settings?.serverUrl || ''
       if (serverUrl) {
         setBoot('Checking UI updates…')
@@ -191,7 +192,7 @@ export default function App() {
   const addDownload = async (item) => {
     setState(prev => {
       const base = prev || {}
-      const downloads = [{ ...item, id: item.id || uid(), createdAt: Date.now() }, ...(base.downloads||[]).filter(d => !(item.sourceUrl && d.sourceUrl===item.sourceUrl) && !(d.src && d.src===item.src))]
+      const downloads = [{ ...item, id: item.id || uid(), createdAt: Date.now(), downloadedAt: Date.now() }, ...(base.downloads||[]).filter(d => !(item.sourceUrl && d.sourceUrl===item.sourceUrl) && !(d.src && d.src===item.src))]
       withTimeout(persist.downloads(downloads), 3000, 'save downloads').catch(console.warn)
       return { ...base, downloads }
     })
@@ -222,7 +223,7 @@ export default function App() {
       <div className="ver">DISKDRIVE V1</div>
     </div>
 
-    {tab==='home' && <Home state={state} save={save} showToast={showToast} openPlayer={openPlayer} setTab={setTab} addDownload={addDownload} />}
+    {tab==='home' && <Home state={state} save={save} showToast={showToast} openPlayer={openPlayer} setTab={setTab} addDownload={addDownload} resolveState={resolveState} setResolveState={setResolveState} />}
     {tab==='download' && <Downloads state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} />}
     {tab==='history' && <HistoryScreen state={state} save={save} showToast={showToast} openPlayer={openPlayer} setConfirm={setConfirm} />}
     {tab==='playlist' && <PlaylistScreen state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} />}

@@ -9,7 +9,11 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
   const [q, setQ] = useState('')
   const [provider, setProvider] = useState('ALL')
   const fileRef = useRef()
-  const items = useMemo(() => (state.downloads||[]).filter(d => (provider==='ALL'||d.provider===provider) && (!q || (d.title||d.name||'').toLowerCase().includes(q.toLowerCase()))), [state.downloads,q,provider])
+  const items = useMemo(() => (state.downloads||[]).filter(d => {
+    const isLocal = d.kind === 'local' || d.stored === 'web-object-url' || d.stored === 'native-data' || d.nativePath
+    const isDownloaded = !!d.downloadedAt || isLocal
+    return isDownloaded && (provider==='ALL'||d.provider===provider) && (!q || (d.title||d.name||'').toLowerCase().includes(q.toLowerCase()))
+  }), [state.downloads,q,provider])
 
   const importLocal = async (e) => {
     const files = [...(e.target.files||[])]; e.target.value=''
@@ -80,15 +84,20 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
           <div className="thumb" onClick={()=>openPlayer(item, items)}>{item.thumb && !String(item.thumb).startsWith('blob:') ? <img src={item.thumb} alt="" /> : <I.play/>}</div>
           <div className="meta" onClick={()=>openPlayer(item, items)}>
             <div className="title">{item.title||item.name}</div>
-            <div className="sub">{item.provider||'LOCAL'} • {fmtBytes(item.size||0)}</div>
+            <div className="sub">{item.provider||'LOCAL'} • {fmtBytes(item.size||0)}{item.date?` • ${item.date}`:''}</div>
           </div>
-          <button className="iconbtn" onClick={()=>setMenu({ title:item.title||item.name, items:[
-            ...(item.provider==='TERABOX' && item.kind==='remote' && item.sourceUrl ? [{label:'Copy source link', onClick:async()=>{ try { await navigator.clipboard.writeText(item.sourceUrl); showToast('Copied') } catch { showToast('Copy failed') } }}] : []),
-            {label:'Save to phone', onClick:()=>saveToPhone(item)},
-            {label:'Save as ZIP', onClick:()=>saveZip(item)},
-            {label:'Delete', danger:true, onClick:()=>remove(item)},
-            {label:'Info', onClick:()=>info(item)},
-          ]})}><I.dots/></button>
+          <div className="row" style={{gap:6}}>
+            <button className="btn ghost" style={{padding:'8px 10px',minHeight:36}} onClick={()=>saveToPhone(item)}>Download</button>
+            <button className="iconbtn" onClick={()=>setMenu({ title:item.title||item.name, items:[
+              {label:'Play in DiskDrive', onClick:()=>openPlayer(item, items)},
+              {label:'Open in other player', onClick:()=>window.open(item.directUrl||item.src,'_blank','noopener,noreferrer')},
+              ...(item.provider==='TERABOX' && item.kind==='remote' && item.sourceUrl ? [{label:'Copy source link', onClick:async()=>{ try { await navigator.clipboard.writeText(item.sourceUrl); showToast('Copied') } catch { showToast('Copy failed') } }}] : []),
+              {label:'Save to phone', onClick:()=>saveToPhone(item)},
+              {label:'Save as ZIP', onClick:()=>saveZip(item)},
+              {label:'Delete', danger:true, onClick:()=>remove(item)},
+              {label:'Info', onClick:()=>info(item)},
+            ]})}><I.dots/></button>
+          </div>
         </div>)}
       </div>
     </div>

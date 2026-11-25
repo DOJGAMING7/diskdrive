@@ -10,6 +10,12 @@ function downloadBlob(blob, name) {
   setTimeout(()=>URL.revokeObjectURL(url), 5000)
 }
 
+async function fetchAsBlob(url) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return await res.blob()
+}
+
 async function getBlob(item) {
   if (item?.src?.startsWith('blob:')) return await (await fetch(item.src)).blob()
   if (Capacitor.isNativePlatform() && item?.nativePath) {
@@ -19,18 +25,40 @@ async function getBlob(item) {
     for (let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i)
     return new Blob([bytes], { type: item.type || 'application/octet-stream' })
   }
-  if (item?.src) return await (await fetch(item.src)).blob()
-  throw new Error('No file data')
+  const candidates = [item?.downloadUrl, item?.directUrl, item?.src].filter(Boolean)
+  let lastErr
+  for (const u of candidates) {
+    try { return await fetchAsBlob(u) } catch (e) { lastErr = e }
+  }
+  throw lastErr || new Error('No file data')
 }
 
-export async function saveToPhone(item) {
-  const blob = await getBlob(item)
+export async function saveToPhone(item, dirName = 'DiskDrive') {
   const name = item.fileName || item.name || 'video.mp4'
-  if (!Capacitor.isNativePlatform()) { downloadBlob(blob, name); return 'saved' }
+  const folder = String(dirName || 'DiskDrive').replace(/[\\/:*?"<>|]+/g, '').trim() || 'DiskDrive'
+  if (!Capacitor.isNativePlatform()) {
+    try {
+      const blob = await getBlob(item)
+      downloadBlob(blob, name)
+      return 'saved'
+    } catch {
+      const url = item?.downloadUrl || item?.directUrl || item?.src
+      if (url) { window.open(url, '_blank', 'noopener,noreferrer'); return 'opened' }
+      throw new Error('No file data')
+    }
+  }
+  try { await Filesystem.mkdir({ path: folder, directory: Directory.Documents, recursive:true }) } catch {}
+  const dest = `${folder}/${name}`
+  const remoteUrl = item?.downloadUrl || item?.directUrl || (!item?.nativePath ? item?.src : null)
+  if (remoteUrl && /^https?:/i.test(remoteUrl)) {
+    try {
+      const res = await Filesystem.downloadFile({ url: remoteUrl, path: dest, directory: Directory.Documents, progress: false })
+      if (res?.path || res) return 'saved'
+    } catch {}
+  }
+  const blob = await getBlob(item)
   const b64 = await blobToBase64(blob)
-  const path = `DiskDrive/${name}`
-  try { await Filesystem.mkdir({ path:'DiskDrive', directory: Directory.Documents, recursive:true }) } catch {}
-  await Filesystem.writeFile({ path, data: b64, directory: Directory.Documents, recursive: true })
+  await Filesystem.writeFile({ path: dest, data: b64, directory: Directory.Documents, recursive: true })
   return 'saved'
 }
 

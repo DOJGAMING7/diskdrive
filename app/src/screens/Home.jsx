@@ -16,12 +16,17 @@ function guessTitle(text, url) {
   return nonUrl || ''
 }
 
-export default function Home({ state, save, showToast, openPlayer, setTab, addDownload }) {
-  const [provider, setProvider] = useState('AUTO')
-  const [link, setLink] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [progress, setProgress] = useState({ active:false, total:0, done:0, current:'', errors:[] })
-  const [resolvedItems, setResolvedItems] = useState([])
+export default function Home({ state, save, showToast, openPlayer, setTab, addDownload, resolveState, setResolveState }) {
+  const provider = resolveState?.provider || 'AUTO'
+  const link = resolveState?.link || ''
+  const busy = !!resolveState?.busy
+  const progress = resolveState?.progress || { active:false, total:0, done:0, current:'', errors:[] }
+  const resolvedItems = resolveState?.resolvedItems || []
+  const setProvider = (p) => setResolveState?.(s => ({ ...s, provider: p }))
+  const setLink = (v) => setResolveState?.(s => ({ ...s, link: v }))
+  const setBusy = (v) => setResolveState?.(s => ({ ...s, busy: typeof v === 'function' ? v(s.busy) : v }))
+  const setProgress = (v) => setResolveState?.(s => ({ ...s, progress: typeof v === 'function' ? v(s.progress) : v }))
+  const setResolvedItems = (v) => setResolveState?.(s => ({ ...s, resolvedItems: typeof v === 'function' ? v(s.resolvedItems) : v }))
   const fileRef = useRef()
 
   const onResolve = async () => {
@@ -42,27 +47,27 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
     if (!terabox.length) return showToast('Unsupported link. Terabox works now; DiskWala coming soon.')
 
     setBusy(true)
-    setProgress({ active:true, total: terabox.length, done:0, current:'Starting…', errors: diskwala.length ? ['DiskWala links skipped (coming soon)'] : [] })
+    setProgress({ active:true, total: terabox.length, done:0, current: terabox.length===1 ? 'Fetching link…' : `Fetching ${terabox.length} links…`, errors: diskwala.length ? ['DiskWala links skipped (coming soon)'] : [] })
     const resolved = []
     const errors = diskwala.length ? ['DiskWala links skipped (coming soon)'] : []
 
     for (let i = 0; i < terabox.length; i++) {
       const job = terabox[i]
       const label = guessTitle(text, job.url) || job.url
-      setProgress(p => ({ ...p, done: i, current: `Resolving ${i + 1}/${terabox.length}: ${label.slice(0, 60)}` }))
+      setProgress(p => ({ ...p, done: i, current: terabox.length===1 ? 'Resolving Terabox link…' : `Resolving ${i + 1}/${terabox.length}: ${label.slice(0, 45)}` }))
       try {
         const media = await resolveTeraboxLink(job.url, {
           resolverUrl: state.settings?.resolverUrl || '',
           resolverKey: state.settings?.resolverKey || '',
         })
+        setProgress(p => ({ ...p, current: terabox.length===1 ? 'Loading file info…' : `Loading ${i + 1}/${terabox.length} info…` }))
         const title = media.title || guessTitle(text, job.url) || media.name
         const item = { ...media, id: uid(), title, name: media.name || title, createdAt: Date.now() }
         resolved.push(item)
-        await addDownload?.(item)
       } catch (e) {
         errors.push(`${job.url.slice(0, 50)}…: ${String(e?.message || e).slice(0, 140)}`)
       }
-      setProgress(p => ({ ...p, done: i + 1, current: `Processed ${i + 1}/${terabox.length}` }))
+      setProgress(p => ({ ...p, done: i + 1, current: terabox.length===1 ? 'Done' : `Processed ${i + 1}/${terabox.length}` }))
     }
 
     if (unknown.length) errors.push(`${unknown.length} unsupported link(s) skipped`)
@@ -82,31 +87,29 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
   }
 
   const onLocal = async (e) => {
-    const file = e.target.files?.[0]
+    const files = [...(e.target.files || [])]
     e.target.value = ''
-    if (!file) return
+    if (!files.length) return
     try {
-      const media = await importLocalFile(file)
-      const downloads = [{ ...media, createdAt: Date.now() }, ...(state.downloads || [])]
+      const medias = []
+      for (const file of files) medias.push({ ...(await importLocalFile(file)), createdAt: Date.now() })
+      const downloads = [...medias, ...(state.downloads || [])]
       await save({ downloads })
-      openPlayer(media, [media])
-    } catch { showToast('Could not open file') }
+      if (medias.length === 1) openPlayer(medias[0], [medias[0]])
+      else { setResolvedItems(medias); showToast(`${medias.length} local videos added as playlist`) }
+    } catch { showToast('Could not open file(s)') }
   }
 
   const downloadOne = async (item) => {
-    const url = item.downloadUrl || item.directUrl || item.src
-    if (!url) return showToast('No download URL')
     try {
-      const a = document.createElement('a')
-      a.href = url
-      a.download = item.name || 'video.mp4'
-      a.target = '_blank'
-      a.rel = 'noopener noreferrer'
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-    } catch {
-      window.open(url, '_blank', 'noopener,noreferrer')
+      showToast('Downloading…')
+      const { saveToPhone } = await import('../lib/export.js')
+      await saveToPhone(item, state.settings?.downloadDir || 'DiskDrive')
+      showToast('Download saved')
+    } catch (e) {
+      const url = item.downloadUrl || item.directUrl || item.src
+      if (url) window.open(url, '_blank', 'noopener,noreferrer')
+      else showToast('Download failed')
     }
   }
 
@@ -157,9 +160,10 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
       </div>
       <div className="list">
         {resolvedItems.map((item, i) => <div className="item" key={item.id || i}>
+          <div className="thumb" style={{width:88,height:52,borderRadius:10,overflow:'hidden',background:'#111',flex:'0 0 auto',display:'grid',placeItems:'center'}}>{item.thumb && !String(item.thumb).startsWith('blob:') ? <img src={item.thumb} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <span style={{fontSize:11,color:'#777'}}>VID</span>}</div>
           <div className="meta">
             <div className="title" style={{whiteSpace:'normal'}}>{item.title || item.name}</div>
-            <div className="sub">{item.sizeHuman || ''}{item.date ? ` • ${item.date}` : ''}</div>
+            <div className="sub">{[item.sizeHuman, item.date, item.uploader].filter(Boolean).join(' • ') || item.provider || 'Terabox'}</div>
           </div>
           {resolvedItems.length > 1 && <div className="row" style={{gap:8}}>
             <button className="btn ghost" onClick={()=>openPlayer(item, resolvedItems)}>Play</button>
@@ -172,7 +176,7 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
     <div className="card">
       <div className="section-title">Local video</div>
       <p className="lead" style={{ marginBottom: 14 }}>Play a video from your device in the DiskDrive player.</p>
-      <input ref={fileRef} type="file" accept="video/*" hidden onChange={onLocal} />
+      <input ref={fileRef} type="file" accept="video/*" multiple hidden onChange={onLocal} />
       <div className="row">
         <button className="btn" onClick={() => fileRef.current?.click()}>Play a local video</button>
         <button className="btn ghost" onClick={() => setTab('download')}>Your downloads</button>
