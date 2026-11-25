@@ -44,7 +44,8 @@ export async function resolveTeraboxLink(url, { resolverUrl, resolverKey } = {})
 
   const directUrl = String(data.directUrl || data.downloadUrl || '').trim()
   const proxyStreamUrl = String(data.proxyStreamUrl || data.streamUrl || '').trim()
-  const streamUrl = directUrl || proxyStreamUrl
+  const proxyDownloadUrl = String(data.proxyDownloadUrl || proxyStreamUrl || '').trim()
+  const streamUrl = proxyStreamUrl || directUrl
   if (!streamUrl) throw new Error(data.message || 'No direct video link found for this Terabox share.')
 
   return {
@@ -55,7 +56,8 @@ export async function resolveTeraboxLink(url, { resolverUrl, resolverKey } = {})
     src: streamUrl,
     directUrl,
     proxyStreamUrl,
-    downloadUrl: String(directUrl || data.proxyDownloadUrl || proxyStreamUrl || streamUrl).trim(),
+    proxyDownloadUrl,
+    downloadUrl: proxyDownloadUrl || directUrl || streamUrl,
     sourceUrl: String(data.sourceUrl || input),
     size: Number(data.size || 0) || 0,
     sizeHuman: String(data.sizeHuman || ''),

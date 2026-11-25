@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { fmtTime } from '../lib/store.js'
 
-export default function Player({ item, queue=[], onClose, onProgress, onSelect, showToast, enqueueDownload }) {
+import { resolveTeraboxLink } from '../lib/terabox.js'
+
+export default function Player({ item, queue=[], onClose, onProgress, onSelect, showToast, enqueueDownload, resolverUrl, resolverKey }) {
   const wrapRef = useRef(null)
   const videoRef = useRef(null)
   const hideTimer = useRef(null)
@@ -45,14 +47,24 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
     const onStalled = () => setLoading(true)
     const onCan = () => setLoading(false)
     const onEnd = () => { setPlaying(false); if (queue[idx+1]) onSelect(queue[idx+1]) }
-    const onErr = () => {
+    const onErr = async () => {
       setLoading(false)
       if (!useDirect && item.directUrl && item.directUrl !== v.src) {
         setErr('Proxy playback failed. Trying direct link…')
         setUseDirect(true)
         return
       }
-      setErr('Cannot play this video file. Try Open in other player or Download.')
+      if (item.sourceUrl && resolverUrl) {
+        try {
+          setErr('Link may have expired. Re-resolving…')
+          setLoading(true)
+          const fresh = await resolveTeraboxLink(item.sourceUrl, { resolverUrl, resolverKey })
+          setLoading(false)
+          if (fresh?.src) { onSelect({ ...item, ...fresh }); return }
+        } catch {}
+      }
+      setLoading(false)
+      setErr('Cannot play this video file. Try Download or re-resolve.')
     }
     v.addEventListener('loadedmetadata', onLoaded)
     v.addEventListener('timeupdate', onTime)
@@ -167,8 +179,9 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
         {err && <div style={{marginBottom:10,fontSize:13}}>
           <div>{err}</div>
           <div className="row" style={{marginTop:8}}>
-            {(item.directUrl || item.src) && <button className="btn ghost" onClick={()=>window.open(item.directUrl || item.src, '_blank', 'noopener,noreferrer')}>Open in other player</button>}
-            {(item.downloadUrl || item.directUrl || item.src) && <a className="btn ghost" href={item.downloadUrl || item.directUrl || item.src} target="_blank" rel="noopener noreferrer" download={item.name||'video.mp4'}>Download</a>}
+            {(item.proxyStreamUrl || item.proxyDownloadUrl || item.src) && <button className="btn ghost" onClick={()=>window.open(item.proxyStreamUrl || item.proxyDownloadUrl || item.src, '_blank', 'noopener,noreferrer')}>Open in other player</button>}
+            <button className="btn ghost" onClick={()=>{ if(enqueueDownload) enqueueDownload(item); else window.open(item.proxyDownloadUrl || item.downloadUrl || item.src, '_blank') }}>Download</button>
+            {item.sourceUrl && resolverUrl && <button className="btn ghost" onClick={async()=>{ try{ setLoading(true); setErr('Re-resolving...'); const fresh=await resolveTeraboxLink(item.sourceUrl,{resolverUrl,resolverKey}); setLoading(false); if(fresh?.src) onSelect({...item,...fresh}); }catch(e){ setLoading(false); setErr(String(e?.message||e)) } }}>Re-resolve</button>}
           </div>
         </div>}
         {pipMsg && <div style={{marginBottom:10,fontSize:13}}>{pipMsg}</div>}

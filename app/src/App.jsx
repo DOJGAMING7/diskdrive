@@ -6,6 +6,7 @@ import { uid, now } from './lib/id.js'
 import { initNative, onAppState } from './lib/native.js'
 import { checkAndUpdateBundle, getBundleMeta, getCachedBundleUrl } from './lib/updater.js'
 import { createDownloadManager } from './lib/downloadManager.js'
+import { resolveTeraboxLink } from './lib/terabox.js'
 import { withTimeout, bootStatus } from './lib/async.js'
 import { generateThumbnail, persistThumbnail, resolveThumb } from './lib/thumb.js'
 import Player from './components/Player.jsx'
@@ -63,9 +64,14 @@ export default function App() {
         } else if (job.status === 'error') {
           showToast(`Download failed: ${job.error?.slice(0,60) || 'error'}`)
         }
+      },
+      resolveItem: async (job) => {
+        if (!job.sourceUrl) throw new Error('No source URL to re-resolve')
+        const r = await resolveTeraboxLink(job.sourceUrl, { resolverUrl: state.settings?.resolverUrl, resolverKey: state.settings?.resolverKey })
+        return r
       }
     })
-  }, [])
+  }, [state.settings?.resolverUrl, state.settings?.resolverKey])
 
   const setBoot = (msg) => { setBootMsg(msg); bootStatus(msg) }
   useEffect(() => { withTimeout(initNative(), 3000, 'native init').catch((e)=>console.warn(e)) }, [])
@@ -256,7 +262,7 @@ export default function App() {
 
     <nav className="bottom-nav"><div className="nav-inner">{TABS.map(t=>{ const Icon=t.icon; return <button key={t.id} className={`navbtn ${tab===t.id?'active':''}`} onClick={()=>setTab(t.id)}><Icon/><span>{t.label}</span></button> })}</div></nav>
 
-    {playerItem && <Player item={playerItem} queue={playerQueue} onClose={()=>setPlayerItem(null)} onProgress={(src,pos,dur)=>updateHistoryPos(src,pos,dur)} onSelect={(it)=>{ setPlayerItem(it); updateHistoryPos(it.src, it.position||0, it.duration||0) }} showToast={showToast} enqueueDownload={enqueueDownload} />}
+    {playerItem && <Player item={playerItem} queue={playerQueue} onClose={()=>setPlayerItem(null)} onProgress={(src,pos,dur)=>updateHistoryPos(src,pos,dur)} onSelect={(it)=>{ setPlayerItem(it); updateHistoryPos(it.src, it.position||0, it.duration||0) }} showToast={showToast} enqueueDownload={enqueueDownload} resolverUrl={state.settings?.resolverUrl||''} resolverKey={state.settings?.resolverKey||''} />}
     {menu && <MenuModal menu={menu} onClose={()=>setMenu(null)} />}
     {confirm && <ConfirmModal confirm={confirm} onClose={()=>setConfirm(null)} />}
     {toast && <div className="toast">{toast}</div>}

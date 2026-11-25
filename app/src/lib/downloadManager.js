@@ -18,7 +18,7 @@ async function resolveSaveDir(dirName='Download') {
   return { directory: Directory.Documents, path: folder }
 }
 
-export function createDownloadManager({ onUpdate, onComplete }) {
+export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
   const jobs = new Map()
   let running = 0
   const max = 2
@@ -29,56 +29,73 @@ export function createDownloadManager({ onUpdate, onComplete }) {
     job.status = 'downloading'; job.error = ''; emit()
     try {
       const name = sanitize(job.fileName || job.name || 'video.mp4')
-      const url = job.downloadUrl || job.directUrl || job.src
+      let url = job.proxyDownloadUrl || job.downloadUrl || job.proxyStreamUrl || job.directUrl || job.src
       if (!url) throw new Error('No download URL')
 
       if (Capacitor.isNativePlatform()) {
         const destDir = await resolveSaveDir(job.dirName || 'Download')
         const dest = `${destDir.path}/${name}`
         // Capacitor downloadFile has progress in newer versions; fallback to no-progress
-        try {
+        const tryNative = async (dlUrl) => {
           let lastPct = 0
-          const listener = await Filesystem.addListener('progress', (p) => {
-            if (p?.url !== url) return
-            const pct = p.contentLength ? Math.round((p.bytes / p.contentLength) * 100) : job.progress
-            if (pct !== lastPct) { lastPct = pct; job.progress = pct; emit() }
-          })
-          const res = await Filesystem.downloadFile({ url, path: dest, directory: destDir.directory, progress: true })
-          try { await listener.remove() } catch {}
-          if (!res?.path && !res) throw new Error('Download failed')
-          job.progress = 100; job.status = 'done'; job.savedPath = dest; job.savedDirectory = String(destDir.directory)
-        } catch (e) {
-          // fallback: fetch blob then write base64
-          job.progress = 0; emit()
-          const res = await fetch(url)
-          if (!res.ok) throw new Error(`HTTP ${res.status}`)
-          const blob = await res.blob()
-          const b64 = await blobToBase64(blob)
-          await Filesystem.writeFile({ path: dest, data: b64, directory: destDir.directory, recursive: true })
-          job.progress = 100; job.status = 'done'; job.savedPath = dest; job.savedDirectory = String(destDir.directory)
+          let listener
+          try { listener = await Filesystem.addListener('progress', (p) => { if (p?.url !== dlUrl) return; const pct = p.contentLength ? Math.round((p.bytes / p.contentLength) * 100) : job.progress; if (pct !== lastPct) { lastPct = pct; job.progress = pct; emit() } }) } catch {}
+          try {
+            const res = await Filesystem.downloadFile({ url: dlUrl, path: dest, directory: destDir.directory, progress: true })
+            if (!res?.path && !res) throw new Error('Download failed')
+            return true
+          } finally { try { await listener?.remove() } catch {} }
         }
+        let ok = false
+        try { ok = await tryNative(url) } catch (e) {
+          // if expired/forbidden and we can re-resolve, retry once
+          if (resolveItem && job.sourceUrl) {
+            job.status = 'resolving'; job.error = ''; emit()
+            const fresh = await resolveItem(job)
+            url = fresh.proxyDownloadUrl || fresh.downloadUrl || fresh.proxyStreamUrl || fresh.directUrl || fresh.src || url
+            job.downloadUrl = fresh.downloadUrl || job.downloadUrl
+            job.directUrl = fresh.directUrl || job.directUrl
+            job.proxyDownloadUrl = fresh.proxyDownloadUrl || job.proxyDownloadUrl
+            job.src = fresh.src || job.src
+            job.status = 'downloading'; emit()
+            ok = await tryNative(url)
+          } else { throw e }
+        }
+        if (!ok) throw new Error('Download failed')
+        job.progress = 100; job.status = 'done'; job.savedPath = dest; job.savedDirectory = String(destDir.directory)
       } else {
-        const res = await fetch(url)
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const total = Number(res.headers.get('content-length') || 0)
-        if (res.body && total) {
-          const reader = res.body.getReader()
-          const chunks = []
-          let received = 0
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            chunks.push(value)
-            received += value.length
-            job.progress = Math.min(99, Math.round((received / total) * 100))
-            emit()
+        const doWeb = async (dlUrl) => {
+          const res = await fetch(dlUrl)
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          const total = Number(res.headers.get('content-length') || 0)
+          if (res.body && total) {
+            const reader = res.body.getReader()
+            const chunks = []
+            let received = 0
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              chunks.push(value)
+              received += value.length
+              job.progress = Math.min(99, Math.round((received / total) * 100))
+              emit()
+            }
+            return new Blob(chunks, { type: res.headers.get('content-type') || 'video/mp4' })
           }
-          const blob = new Blob(chunks, { type: res.headers.get('content-type') || 'video/mp4' })
-          triggerBlobDownload(blob, name)
-        } else {
-          const blob = await res.blob()
-          triggerBlobDownload(blob, name)
+          return await res.blob()
         }
+        let blob
+        try { blob = await doWeb(url) } catch (e) {
+          if (resolveItem && job.sourceUrl) {
+            job.status = 'resolving'; emit()
+            const fresh = await resolveItem(job)
+            url = fresh.proxyDownloadUrl || fresh.downloadUrl || fresh.proxyStreamUrl || fresh.directUrl || fresh.src || url
+            job.downloadUrl = fresh.downloadUrl || job.downloadUrl; job.directUrl = fresh.directUrl || job.directUrl; job.proxyDownloadUrl = fresh.proxyDownloadUrl || job.proxyDownloadUrl; job.src = fresh.src || job.src
+            job.status = 'downloading'; emit()
+            blob = await doWeb(url)
+          } else throw e
+        }
+        triggerBlobDownload(blob, name)
         job.progress = 100; job.status = 'done'; job.savedPath = name
       }
     } catch (e) {
@@ -102,7 +119,7 @@ export function createDownloadManager({ onUpdate, onComplete }) {
       const id = uid()
       const job = {
         id, itemId: item.id, title: item.title || item.name, name: item.name, fileName: item.fileName || item.name || 'video.mp4',
-        src: item.src, directUrl: item.directUrl, downloadUrl: item.downloadUrl, sourceUrl: item.sourceUrl,
+        src: item.src, directUrl: item.directUrl, downloadUrl: item.downloadUrl, proxyDownloadUrl: item.proxyDownloadUrl, proxyStreamUrl: item.proxyStreamUrl, sourceUrl: item.sourceUrl,
         provider: item.provider, kind: item.kind, thumb: item.thumb, thumbPath: item.thumbPath, date: item.date, size: item.size, sizeHuman: item.sizeHuman,
         dirName, progress: 0, status: 'queued', error: '', createdAt: Date.now(),
       }
