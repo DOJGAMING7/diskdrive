@@ -6,6 +6,7 @@ const DEFAULT_SETTINGS = {
   pinEnabled: false,
   lastSaveDir: null,
   downloadDir: 'Download',
+  downloadStorage: 'inapp', // inapp | device
   serverUrl: '',
   serverLocked: false,
   resolverUrl: '',

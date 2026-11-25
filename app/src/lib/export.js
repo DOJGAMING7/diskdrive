@@ -16,7 +16,8 @@ async function fetchAsBlob(url) {
   return await res.blob()
 }
 
-async function getBlob(item) {
+async function getBlob(item, opts={}) {
+  const allowRemoteFetch = opts.allowRemoteFetch !== false
   if (item?.src?.startsWith('blob:')) return await (await fetch(item.src)).blob()
   if (Capacitor.isNativePlatform() && item?.nativePath) {
     const b64 = await readNativeBase64(item)
@@ -25,7 +26,8 @@ async function getBlob(item) {
     for (let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i)
     return new Blob([bytes], { type: item.type || 'application/octet-stream' })
   }
-  const candidates = [item?.downloadUrl, item?.directUrl, item?.src].filter(Boolean)
+  if (!allowRemoteFetch) throw new Error('Local file data not available')
+  const candidates = [item?.downloadUrl, item?.directUrl, item?.src].filter(u => /^https?:|^blob:|^data:/i.test(String(u||'')))
   let lastErr
   for (const u of candidates) {
     try { return await fetchAsBlob(u) } catch (e) { lastErr = e }
@@ -45,11 +47,12 @@ async function resolveSaveDir(dirName = 'Download') {
   return { directory: Directory.Documents, path: folder }
 }
 
-export async function saveToPhone(item, dirName = 'Download') {
+export async function saveToPhone(item, dirName = 'Download', opts = {}) {
   const name = item.fileName || item.name || 'video.mp4'
+  const allowRemoteFetch = opts.allowRemoteFetch !== false
   if (!Capacitor.isNativePlatform()) {
     try {
-      const blob = await getBlob(item)
+      const blob = await getBlob(item, { allowRemoteFetch })
       downloadBlob(blob, name)
       return { status:'saved' }
     } catch {
@@ -60,14 +63,29 @@ export async function saveToPhone(item, dirName = 'Download') {
   }
   const destDir = await resolveSaveDir(dirName)
   const dest = `${destDir.path}/${name}`
-  const remoteUrl = item?.downloadUrl || item?.directUrl || (!item?.nativePath ? item?.src : null)
+  try {
+    const st = await Filesystem.stat({ path: dest, directory: destDir.directory })
+    if (st?.size) return { status:'already', path: dest, directory: String(destDir.directory) }
+  } catch {}
+  // If file already exists in app/native storage, copy it locally (no redownload)
+  if (item?.nativePath) {
+    try {
+      const b64 = await readNativeBase64(item)
+      if (b64) {
+        await Filesystem.writeFile({ path: dest, data: b64, directory: destDir.directory, recursive: true })
+        return { status:'saved', path: dest, directory: String(destDir.directory), copied:true }
+      }
+    } catch {}
+  }
+  // For remote items, only download if explicitly allowed; prefer queue flow in UI
+  const remoteUrl = allowRemoteFetch ? (item?.downloadUrl || item?.directUrl || (!item?.nativePath ? item?.src : null)) : null
   if (remoteUrl && /^https?:/i.test(remoteUrl)) {
     try {
       const res = await Filesystem.downloadFile({ url: remoteUrl, path: dest, directory: destDir.directory, progress: false })
       if (res?.path || res) return { status:'saved', path: dest, directory: String(destDir.directory) }
     } catch {}
   }
-  const blob = await getBlob(item)
+  const blob = await getBlob(item, { allowRemoteFetch })
   const b64 = await blobToBase64(blob)
   await Filesystem.writeFile({ path: dest, data: b64, directory: destDir.directory, recursive: true })
   return { status:'saved', path: dest, directory: String(destDir.directory) }

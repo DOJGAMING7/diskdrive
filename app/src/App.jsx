@@ -244,10 +244,11 @@ export default function App() {
 
   const enqueueDownload = (item) => {
     const dir = state?.settings?.downloadDir || 'Download'
+    const storageMode = state?.settings?.downloadStorage || 'inapp'
     if (!downloadMgr.current) { showToast('Download manager not ready'); return null }
-    const res = downloadMgr.current.enqueue(item, dir)
+    const res = downloadMgr.current.enqueue(item, dir, storageMode)
     if (res?.deduped) showToast(`Already in queue (${res.status})`)
-    else showToast('Download queued')
+    else showToast(storageMode === 'device' ? 'Download queued (device folder)' : 'Download queued (in-app storage)')
     return res
   }
   const cancelDownload = (id) => { downloadMgr.current?.cancel(id); showToast('Download cancelled') }

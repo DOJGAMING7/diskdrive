@@ -48,7 +48,7 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
       if (!url) throw new Error('No download URL')
 
       if (Capacitor.isNativePlatform()) {
-        const destDir = await resolveSaveDir(job.dirName || 'Download')
+        const destDir = await resolveSaveDir(job.dirName || 'Download', job.storageMode || 'inapp')
         const dest = `${destDir.path}/${name}`
         // Capacitor downloadFile has progress in newer versions; fallback to no-progress
         const tryNative = async (dlUrl) => {
@@ -96,13 +96,13 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
         if (!ok) throw lastErr || new Error('Download failed')
         if (job.status === 'cancelled') throw new DOMException('Aborted','AbortError')
         job.progress = 100; job.status = 'done'; job.savedPath = dest; job.savedDirectory = String(destDir.directory)
-        job.nativePath = dest; job.kind = 'local'; job.stored = 'native-external'
+        job.nativePath = dest; job.kind = 'local'; job.stored = destDir.stored || (job.storageMode==='device' ? 'native-external' : 'app-private')
         try {
           const uri = await Filesystem.getUri({ path: dest, directory: destDir.directory })
           job.nativeUri = uri?.uri || ''
           job.srcLocal = job.nativeUri ? Capacitor.convertFileSrc(job.nativeUri) : job.src
         } catch { job.srcLocal = job.src }
-        try { const st = await Filesystem.stat({ path: dest, directory: destDir.directory }); if (st?.size) job.size = Number(st.size) } catch {}
+        try { const st = await Filesystem.stat({ path: dest, directory: destDir.directory }); if (st?.size) { job.size = Number(st.size); job.totalBytes = Number(st.size); job.receivedBytes = Number(st.size) } } catch {}
       } else {
         const doWeb = async (dlUrl) => {
           const res = await fetch(dlUrl, { signal: ctrl.signal })
@@ -174,7 +174,7 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
 
   function keyFor(item) { return item?.sourceUrl || item?.directUrl || item?.src || item?.id || '' }
   return {
-    enqueue(item, dirName='Download') {
+    enqueue(item, dirName='Download', storageMode='inapp') {
       const k = keyFor(item)
       const existingActive = [...jobs.values()].find(j => isActive(j) && keyFor(j) === k)
       if (existingActive) return { id: existingActive.id, deduped: true, status: existingActive.status }
@@ -186,7 +186,7 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
           title: item.title || item.name || reuse.title, name: item.name || reuse.name, fileName: item.fileName || item.name || reuse.fileName,
           src: item.src || reuse.src, directUrl: item.directUrl || reuse.directUrl, downloadUrl: item.downloadUrl || reuse.downloadUrl,
           proxyDownloadUrl: item.proxyDownloadUrl || reuse.proxyDownloadUrl, proxyStreamUrl: item.proxyStreamUrl || reuse.proxyStreamUrl, sourceUrl: item.sourceUrl || reuse.sourceUrl,
-          dirName, progress: 0, status: 'queued', error: '', startedAt: null, receivedBytes: 0, speedBps: 0, etaSec: null, savedPath: null, nativePath: null, nativeUri: null, srcLocal: null,
+          dirName, storageMode, progress: 0, status: 'queued', error: '', startedAt: null, receivedBytes: 0, speedBps: 0, etaSec: null, savedPath: null, nativePath: null, nativeUri: null, srcLocal: null,
         })
         emit(); pump()
         return { id: reuse.id, deduped: false, status: reuse.status, reused: true }
@@ -196,7 +196,7 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
         id, itemId: item.id, title: item.title || item.name, name: item.name, fileName: item.fileName || item.name || 'video.mp4',
         src: item.src, directUrl: item.directUrl, downloadUrl: item.downloadUrl, proxyDownloadUrl: item.proxyDownloadUrl, proxyStreamUrl: item.proxyStreamUrl, sourceUrl: item.sourceUrl,
         provider: item.provider, kind: item.kind, thumb: item.thumb, thumbPath: item.thumbPath, date: item.date, size: item.size, sizeHuman: item.sizeHuman,
-        dirName, progress: 0, status: 'queued', error: '', createdAt: Date.now(),
+        dirName, storageMode, progress: 0, status: 'queued', error: '', createdAt: Date.now(),
         receivedBytes: 0, totalBytes: Number(item.size||0)||0, speedBps: 0, etaSec: null,
       }
       jobs.set(id, job)

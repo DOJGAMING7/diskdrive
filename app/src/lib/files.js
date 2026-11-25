@@ -54,7 +54,9 @@ function dirFrom(item) {
   if (d === 'EXTERNAL_STORAGE' || d === 'EXTERNAL' ) return Directory.ExternalStorage
   if (d === 'DOCUMENTS') return Directory.Documents
   if (d === 'DATA') return Directory.Data
-  return item?.stored === 'native-external' ? Directory.ExternalStorage : Directory.Data
+  if (item?.stored === 'native-external') return Directory.ExternalStorage
+  if (item?.stored === 'app-private' || item?.kind === 'native-file') return Directory.Data
+  return Directory.Data
 }
 
 export async function deleteNativeFile(item) {

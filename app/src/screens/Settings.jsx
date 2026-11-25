@@ -231,8 +231,18 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
     <div className="card">
       <div className="section-title">Downloads / Storage</div>
       <div className="item" style={{flexDirection:'column',alignItems:'stretch',gap:8}}>
-        <div className="meta"><div className="title">Download folder name</div><div className="sub">Saved in device Download folder (native). Example: Download/DiskDrive</div></div>
-        <input className="input" value={state.settings?.downloadDir||'Download'} onChange={e=>save({ settings:{...state.settings, downloadDir:e.target.value} })} placeholder="Download" />
+        <div className="meta"><div className="title">Download storage</div><div className="sub">In-app storage counts toward app data and plays offline reliably. Device folder saves to shared Download/Documents for file-manager access.</div></div>
+        <select className="input" value={state.settings?.downloadStorage||'inapp'} onChange={e=>save({ settings:{...state.settings, downloadStorage:e.target.value} })}>
+          <option value="inapp">In-app storage (recommended)</option>
+          <option value="device">Device Download/Documents folder</option>
+        </select>
+      </div>
+      <div className="item" style={{flexDirection:'column',alignItems:'stretch',gap:8}}>
+        <div className="meta"><div className="title">Download folder name</div><div className="sub">{(state.settings?.downloadStorage||'inapp')==='device' ? 'Saved in device Download/Documents folder.' : 'Saved inside app private storage folder (counts in app data).'}</div></div>
+        <div className="row" style={{gap:8}}>
+          <input className="input" style={{flex:1}} value={state.settings?.downloadDir||'Download'} onChange={e=>save({ settings:{...state.settings, downloadDir:e.target.value} })} placeholder="Download" />
+          <button className="btn" onClick={()=>{ save({ settings:{...state.settings, downloadDir: (state.settings?.downloadDir||'Download').trim() || 'Download' } }); showToast('Download folder saved') }}>Save</button>
+        </div>
       </div>
       <div className="item"><div className="meta"><div className="title">Local app data</div><div className="sub">History, playlists, downloads metadata stored on device.</div></div>
         <button className="btn ghost" onClick={async()=>{
