@@ -77,6 +77,14 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
     </div>
 
     <div className="card">
+      <div className="section-title">Terabox resolver</div>
+      <p className="small" style={{marginTop:0}}>Set your resolver Worker URL. NDUS stays on the server secret, never in this app.</p>
+      <input className="input" placeholder="Resolver URL (https://.../resolve)" value={state.settings?.resolverUrl||''} onChange={e=>save({ settings:{...state.settings, resolverUrl:e.target.value} })} />
+      <input className="input" style={{marginTop:10}} placeholder="Resolver key (optional)" value={state.settings?.resolverKey||''} onChange={e=>save({ settings:{...state.settings, resolverKey:e.target.value} })} />
+      <div className="small" style={{marginTop:10}}>DiskWala resolve is still coming soon.</div>
+    </div>
+
+    <div className="card">
       <div className="section-title">App lock</div>
       <div className="list">
         <div className="item"><div className="meta"><div className="title">PIN lock</div><div className="sub">{state.pinEnabled?'Enabled':'Disabled'} • No forgot PIN</div></div><button className="btn ghost" onClick={state.pinEnabled?disablePin:enablePin}>{state.pinEnabled?'Disable':'Enable'}</button></div>

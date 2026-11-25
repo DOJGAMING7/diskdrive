@@ -6,6 +6,8 @@ const DEFAULT_SETTINGS = {
   pinEnabled: false,
   lastSaveDir: null,
   serverUrl: '',
+  resolverUrl: '',
+  resolverKey: '',
 }
 const DEFAULT_PLAYLISTS = [
   { id: 'watch-later', name: 'WATCH LATER', builtIn: true, items: [], updatedAt: now() },

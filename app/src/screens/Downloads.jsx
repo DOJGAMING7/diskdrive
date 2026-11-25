@@ -26,7 +26,7 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
     onConfirm: async () => { await deleteNativeFile(item); await save({ downloads: (state.downloads||[]).filter(d=>d.id!==item.id) }); showToast('Deleted') }
   })
   const saveToPhone = async (item) => {
-    try { await exportToPhone(item); showToast('Saved to device') } catch { showToast('Could not save file') }
+    try { await exportToPhone(item); showToast('Saved to device') } catch (e) { showToast(item?.kind==='remote' ? 'Remote save may be blocked by CORS. Use Download in app/browser.' : 'Could not save file') }
   }
   const saveZip = async (item) => {
     const wantPw = window.confirm('Password protect ZIP?\nOK = Yes, Cancel = No')
@@ -36,7 +36,9 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
       if (!password) return showToast('ZIP password required')
     }
     try {
-      const blob = item?.src?.startsWith('blob:') ? await (await fetch(item.src)).blob() : await (await fetch(item.src)).blob()
+      const res = await fetch(item.src)
+      if (!res.ok) throw new Error('fetch failed')
+      const blob = await res.blob()
       const name = (item.fileName || item.name || 'video.mp4')
       const zip = await makeZip([{ name, blob }], password ? { password } : {})
       const a = document.createElement('a')
@@ -45,7 +47,7 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
       setTimeout(()=>URL.revokeObjectURL(url), 5000)
       showToast(password ? 'Protected ZIP saved' : 'ZIP saved')
     } catch (e) {
-      showToast('Could not create ZIP')
+      showToast(item?.kind==='remote' ? 'Remote ZIP may be blocked by CORS. Try Download in app.' : 'Could not create ZIP')
     }
   }
   const info = (item) => setMenu({ title:'Info', items:[
@@ -81,6 +83,7 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
             <div className="sub">{item.provider||'LOCAL'} • {fmtBytes(item.size||0)}</div>
           </div>
           <button className="iconbtn" onClick={()=>setMenu({ title:item.title||item.name, items:[
+            ...(item.provider==='TERABOX' && item.kind==='remote' && item.sourceUrl ? [{label:'Copy source link', onClick:async()=>{ try { await navigator.clipboard.writeText(item.sourceUrl); showToast('Copied') } catch { showToast('Copy failed') } }}] : []),
             {label:'Save to phone', onClick:()=>saveToPhone(item)},
             {label:'Save as ZIP', onClick:()=>saveZip(item)},
             {label:'Delete', danger:true, onClick:()=>remove(item)},

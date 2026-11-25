@@ -1,0 +1,7 @@
+name = "diskdrive-terabox-resolver"
+main = "src/index.js"
+compatibility_date = "2026-11-25"
+
+[vars]
+# Set RESOLVER_SECRET as a secret, not here. TERABOX_NDUS/TERABOX_COOKIE must be secrets.
+ALLOWED_ORIGINS = "*"

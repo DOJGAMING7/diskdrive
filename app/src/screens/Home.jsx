@@ -1,17 +1,37 @@
 import React, { useRef, useState } from 'react'
 import { importLocalFile } from '../lib/files.js'
+import { isTeraboxUrl, resolveTeraboxLink } from '../lib/terabox.js'
 
-export default function Home({ state, save, showToast, openPlayer, setTab }) {
+export default function Home({ state, save, showToast, openPlayer, setTab, addDownload }) {
   const [provider, setProvider] = useState('AUTO')
   const [link, setLink] = useState('')
+  const [busy, setBusy] = useState(false)
   const fileRef = useRef()
 
-  const onResolve = () => {
+  const onResolve = async () => {
     const v = link.trim()
     if (!v) return showToast('Paste a link or pick a local video')
-    if (provider === 'TERABOX' || (provider === 'AUTO' && /tera|1024terabox|terabox/i.test(v))) return showToast('Coming soon')
     if (provider === 'DISKWALA' || /diskwala/i.test(v)) return showToast('Coming soon')
-    showToast('Coming soon')
+    const isTerabox = provider === 'TERABOX' || (provider === 'AUTO' && (isTeraboxUrl(v) || /tera|1024terabox|terabox/i.test(v)))
+    if (isTerabox) {
+      setBusy(true)
+      try {
+        const media = await resolveTeraboxLink(v, {
+          resolverUrl: state.settings?.resolverUrl || '',
+          resolverKey: state.settings?.resolverKey || '',
+        })
+        const item = { ...media, id: media.id || (crypto?.randomUUID?.() || String(Date.now())), createdAt: Date.now() }
+        await addDownload?.(item)
+        openPlayer(item, [item])
+        showToast('Terabox video ready')
+      } catch (e) {
+        showToast(String(e?.message || e || 'Could not resolve Terabox link'))
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
+    showToast('Unsupported link. Terabox works now; DiskWala coming soon.')
   }
   const onLocal = async (e) => {
     const file = e.target.files?.[0]
@@ -27,7 +47,7 @@ export default function Home({ state, save, showToast, openPlayer, setTab }) {
 
   return <div className="screen">
     <h1>Play anything. Keep it private.</h1>
-    <p className="lead">Play local videos now. Terabox and DiskWala links will be available soon.</p>
+    <p className="lead">Play local videos and Terabox links. DiskWala is coming soon.</p>
 
     <div className="card">
       <div className="chips">
@@ -35,9 +55,9 @@ export default function Home({ state, save, showToast, openPlayer, setTab }) {
       </div>
       <div className="row" style={{alignItems:'stretch'}}>
         <input className="input" style={{flex:1}} value={link} onChange={e=>setLink(e.target.value)} placeholder="Paste a Terabox or DiskWala link" />
-        <button className="btn" onClick={onResolve} style={{minWidth:88}}>Add</button>
+        <button className="btn" onClick={onResolve} style={{minWidth:88}} disabled={busy}>{busy?'Resolving…':'Add'}</button>
       </div>
-      <div className="small" style={{marginTop:10}}>Link resolve is not connected yet. Local videos work fully.</div>
+      <div className="small" style={{marginTop:10}}>Terabox works through your resolver URL in Settings. NDUS stays on server. DiskWala coming soon.</div>
     </div>
 
     <div className="card">

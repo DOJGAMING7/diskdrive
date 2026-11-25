@@ -10,7 +10,7 @@ export default function HistoryScreen({ state, save, showToast, openPlayer, setC
 
   const removeOne = (id) => save({ history: (state.history||[]).filter(h=>h.id!==id) })
   const clearAll = () => setConfirm({ title:'Clear history', steps:['Clear all watch history?','Confirm again. This cannot be undone.'], confirmLabel:'Clear', onConfirm: async()=>{ await save({ history: [] }); showToast('History cleared') } })
-  const play = (h) => openPlayer({ id:h.mediaId||h.id, title:h.title, name:h.name, src:h.src, thumb:h.thumb, thumbPath:h.thumbPath, provider:h.provider, kind:h.kind, position:h.position||0 }, items.map(x=>({id:x.mediaId||x.id,title:x.title,name:x.name,src:x.src,thumb:x.thumb,thumbPath:x.thumbPath,provider:x.provider,kind:x.kind,position:x.position||0})))
+  const play = (h) => openPlayer({ id:h.mediaId||h.id, title:h.title, name:h.name, src:h.src, sourceUrl:h.sourceUrl, thumb:h.thumb, thumbPath:h.thumbPath, provider:h.provider, kind:h.kind, position:h.position||0 }, items.map(x=>({id:x.mediaId||x.id,title:x.title,name:x.name,src:x.src,sourceUrl:x.sourceUrl,thumb:x.thumb,thumbPath:x.thumbPath,provider:x.provider,kind:x.kind,position:x.position||0})))
 
   return <div className="screen">
     <h1>History</h1>

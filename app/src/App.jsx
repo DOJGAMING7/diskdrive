@@ -32,7 +32,7 @@ export default function App() {
   const [bootMsg, setBootMsg] = useState('Loading…')
   const [tab, setTab] = useState('home')
   const [toast, setToast] = useState('')
-  const [state, setState] = useState({ adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:"watch-later",name:"WATCH LATER",builtIn:true,items:[],updatedAt:Date.now()},{id:"favourites",name:"FAVOURITES",builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,serverUrl:""} })
+  const [state, setState] = useState({ adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:"watch-later",name:"WATCH LATER",builtIn:true,items:[],updatedAt:Date.now()},{id:"favourites",name:"FAVOURITES",builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,serverUrl:"",resolverUrl:"",resolverKey:""} })
   const [adminInput, setAdminInput] = useState('')
   const [adminErr, setAdminErr] = useState('')
   const [adminAttempts, setAdminAttempts] = useState(0)
@@ -54,7 +54,7 @@ export default function App() {
     try {
       setBoot('Loading saved data…')
       const s = await withTimeout(loadState(), 3000, 'load state').catch((e)=>{ console.warn(e); return null })
-      const safe = s || { adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:'watch-later',name:'WATCH LATER',builtIn:true,items:[],updatedAt:Date.now()},{id:'favourites',name:'FAVOURITES',builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,serverUrl:''} }
+      const safe = s || { adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:'watch-later',name:'WATCH LATER',builtIn:true,items:[],updatedAt:Date.now()},{id:'favourites',name:'FAVOURITES',builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,serverUrl:'',resolverUrl:'',resolverKey:''} }
       const serverUrl = safe?.settings?.serverUrl || ''
       if (serverUrl) {
         setBoot('Checking UI updates…')
@@ -167,9 +167,9 @@ export default function App() {
     setPlayerItem(item)
     setState(prev => {
       const base = prev || {}
-      const existing = (base.history||[]).find(h => h.src && h.src === item.src)
-      const entry = { id: existing?.id || uid(), mediaId: item.id, provider: item.provider || 'LOCAL', title: item.title || item.name, name: item.name, src: item.src, thumb: item.thumb || existing?.thumb || '', thumbPath: item.thumbPath || existing?.thumbPath || null, kind: item.kind||'local', watchedAt: now(), position: existing?.position || item.position || 0, duration: existing?.duration || item.duration || 0, watchCount: (existing?.watchCount || 0) + 1 }
-      const history = [entry, ...(base.history||[]).filter(h => !(h.src && h.src===item.src))].slice(0,200)
+      const existing = (base.history||[]).find(h => (item.sourceUrl && h.sourceUrl === item.sourceUrl) || (h.src && h.src === item.src))
+      const entry = { id: existing?.id || uid(), mediaId: item.id, provider: item.provider || 'LOCAL', title: item.title || item.name, name: item.name, src: item.src, sourceUrl: item.sourceUrl || existing?.sourceUrl || '', thumb: item.thumb || existing?.thumb || '', thumbPath: item.thumbPath || existing?.thumbPath || null, kind: item.kind||'local', watchedAt: now(), position: existing?.position || item.position || 0, duration: existing?.duration || item.duration || 0, watchCount: (existing?.watchCount || 0) + 1 }
+      const history = [entry, ...(base.history||[]).filter(h => !((item.sourceUrl && h.sourceUrl===item.sourceUrl) || (h.src && h.src===item.src)))].slice(0,200)
       withTimeout(persist.history(history), 3000, 'save history').catch(console.warn)
       return { ...base, history }
     })
@@ -185,6 +185,15 @@ export default function App() {
       const history = (base.history||[]).map(h => h.src===src ? { ...h, position, duration: duration||h.duration, watchedAt: now() } : h)
       withTimeout(persist.history(history), 3000, 'save history pos').catch(console.warn)
       return { ...base, history }
+    })
+  }
+
+  const addDownload = async (item) => {
+    setState(prev => {
+      const base = prev || {}
+      const downloads = [{ ...item, id: item.id || uid(), createdAt: Date.now() }, ...(base.downloads||[]).filter(d => !(item.sourceUrl && d.sourceUrl===item.sourceUrl) && !(d.src && d.src===item.src))]
+      withTimeout(persist.downloads(downloads), 3000, 'save downloads').catch(console.warn)
+      return { ...base, downloads }
     })
   }
 
@@ -213,7 +222,7 @@ export default function App() {
       <div className="ver">DISKDRIVE V1</div>
     </div>
 
-    {tab==='home' && <Home state={state} save={save} showToast={showToast} openPlayer={openPlayer} setTab={setTab} />}
+    {tab==='home' && <Home state={state} save={save} showToast={showToast} openPlayer={openPlayer} setTab={setTab} addDownload={addDownload} />}
     {tab==='download' && <Downloads state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} />}
     {tab==='history' && <HistoryScreen state={state} save={save} showToast={showToast} openPlayer={openPlayer} setConfirm={setConfirm} />}
     {tab==='playlist' && <PlaylistScreen state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} />}
