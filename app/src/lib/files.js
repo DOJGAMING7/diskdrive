@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core'
 import { Filesystem, Directory } from '@capacitor/filesystem'
 import { uid } from './id.js'
+import { generateThumbnail, persistThumbnail } from './thumb.js'
 
 export const isNative = () => Capacitor.isNativePlatform()
 const MEDIA_DIR = 'media'
@@ -10,19 +11,30 @@ async function ensureDir() {
   try { await Filesystem.mkdir({ path: MEDIA_DIR, directory: Directory.Data, recursive: true }) } catch {}
 }
 
+async function makeThumb(src, id) {
+  try {
+    const dataUrl = await generateThumbnail(src)
+    if (!dataUrl) return {}
+    return await persistThumbnail(dataUrl, id)
+  } catch { return {} }
+}
+
 export async function importLocalFile(file) {
+  const id = uid()
   if (!isNative()) {
     const src = URL.createObjectURL(file)
-    return { id: uid(), provider:'LOCAL', kind:'local', title:file.name.replace(/\.[^.]+$/,''), name:file.name, src, fileName:file.name, size:file.size||0, type:file.type||'video/*', stored:'web-object-url', addedAt: Date.now() }
+    const thumbData = await makeThumb(src, id)
+    return { id, provider:'LOCAL', kind:'local', title:file.name.replace(/\.[^.]+$/,''), name:file.name, src, thumb: thumbData.thumb || '', thumbPath: thumbData.thumbPath || null, fileName:file.name, size:file.size||0, type:file.type||'video/*', stored:'web-object-url', addedAt: Date.now() }
   }
   await ensureDir()
   const ext = (file.name.split('.').pop() || 'mp4').toLowerCase()
-  const path = `${MEDIA_DIR}/${uid()}.${ext}`
+  const path = `${MEDIA_DIR}/${id}.${ext}`
   const data = await fileToBase64(file)
   await Filesystem.writeFile({ path, data, directory: Directory.Data })
   const uri = await Filesystem.getUri({ path, directory: Directory.Data })
   const src = Capacitor.convertFileSrc(uri.uri)
-  return { id: uid(), provider:'LOCAL', kind:'native-file', title:file.name.replace(/\.[^.]+$/,''), name:file.name, src, nativePath:path, fileName:file.name, size:file.size||0, type:file.type||'video/*', stored:'app-private', addedAt: Date.now() }
+  const thumbData = await makeThumb(src, id)
+  return { id, provider:'LOCAL', kind:'native-file', title:file.name.replace(/\.[^.]+$/,''), name:file.name, src, thumb: thumbData.thumb || '', thumbPath: thumbData.thumbPath || null, nativePath:path, fileName:file.name, size:file.size||0, type:file.type||'video/*', stored:'app-private', addedAt: Date.now() }
 }
 
 function fileToBase64(file) {
@@ -38,8 +50,9 @@ function fileToBase64(file) {
 }
 
 export async function deleteNativeFile(item) {
-  if (!isNative() || !item?.nativePath) return
-  try { await Filesystem.deleteFile({ path: item.nativePath, directory: Directory.Data }) } catch {}
+  if (!isNative()) return
+  if (item?.nativePath) try { await Filesystem.deleteFile({ path: item.nativePath, directory: Directory.Data }) } catch {}
+  if (item?.thumbPath) try { await Filesystem.deleteFile({ path: item.thumbPath, directory: Directory.Data }) } catch {}
 }
 
 export async function readNativeBase64(item) {

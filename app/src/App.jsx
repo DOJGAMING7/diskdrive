@@ -6,6 +6,7 @@ import { uid, now } from './lib/id.js'
 import { initNative, onAppState } from './lib/native.js'
 import { checkAndUpdateBundle, getBundleMeta, getCachedBundleUrl } from './lib/updater.js'
 import { withTimeout, bootStatus } from './lib/async.js'
+import { generateThumbnail, persistThumbnail, resolveThumb } from './lib/thumb.js'
 import Player from './components/Player.jsx'
 import MenuModal from './components/MenuModal.jsx'
 import ConfirmModal from './components/ConfirmModal.jsx'
@@ -125,6 +126,41 @@ export default function App() {
     window.__diskdriveHideBoot?.()
   }, [ready, state, state?.adminUnlocked, locked, tab])
 
+  const thumbJobs = useRef(new Set())
+  useEffect(() => {
+    if (!ready) return
+    const items = [...(state.downloads||[]), ...(state.history||[]), ...((state.playlists||[]).flatMap(p=>p.items||[]))]
+    for (const item of items) {
+      const src = item?.src
+      const hasThumb = item?.thumb && !String(item.thumb).startsWith('blob:')
+      if (!src || hasThumb) continue
+      if (String(src).startsWith('blob:')) continue
+      const key = item.thumbPath || item.id || src
+      if (thumbJobs.current.has(key)) continue
+      thumbJobs.current.add(key)
+      ;(async () => {
+        try {
+          const dataUrl = await generateThumbnail(src)
+          if (!dataUrl) return
+          const saved = await persistThumbnail(dataUrl, item.id || uid())
+          if (!saved?.thumb) return
+          setState(prev => {
+            const base = prev || {}
+            const patchList = (list=[]) => list.map(x => (x.id===item.id || x.src===src) ? { ...x, thumb: saved.thumb, thumbPath: saved.thumbPath || x.thumbPath || null } : x)
+            const downloads = patchList(base.downloads||[])
+            const history = patchList(base.history||[])
+            const playlists = (base.playlists||[]).map(p => ({ ...p, items: patchList(p.items||[]) }))
+            withTimeout(persist.downloads(downloads),3000,'save downloads').catch(()=>{})
+            withTimeout(persist.history(history),3000,'save history').catch(()=>{})
+            withTimeout(persist.playlists(playlists),3000,'save playlists').catch(()=>{})
+            return { ...base, downloads, history, playlists }
+          })
+        } catch {}
+        finally { thumbJobs.current.delete(key) }
+      })()
+    }
+  }, [ready, state.downloads, state.history, state.playlists])
+
   const openPlayer = (item, queue=[]) => {
     const q = queue.length ? queue : [item]
     setPlayerQueue(q)
@@ -132,7 +168,7 @@ export default function App() {
     setState(prev => {
       const base = prev || {}
       const existing = (base.history||[]).find(h => h.src && h.src === item.src)
-      const entry = { id: existing?.id || uid(), mediaId: item.id, provider: item.provider || 'LOCAL', title: item.title || item.name, name: item.name, src: item.src, kind: item.kind||'local', watchedAt: now(), position: existing?.position || item.position || 0, duration: existing?.duration || item.duration || 0, watchCount: (existing?.watchCount || 0) + 1 }
+      const entry = { id: existing?.id || uid(), mediaId: item.id, provider: item.provider || 'LOCAL', title: item.title || item.name, name: item.name, src: item.src, thumb: item.thumb || existing?.thumb || '', thumbPath: item.thumbPath || existing?.thumbPath || null, kind: item.kind||'local', watchedAt: now(), position: existing?.position || item.position || 0, duration: existing?.duration || item.duration || 0, watchCount: (existing?.watchCount || 0) + 1 }
       const history = [entry, ...(base.history||[]).filter(h => !(h.src && h.src===item.src))].slice(0,200)
       withTimeout(persist.history(history), 3000, 'save history').catch(console.warn)
       return { ...base, history }

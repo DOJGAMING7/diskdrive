@@ -75,7 +75,7 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
       <div className="list">
         {items.length===0 && <div className="empty">No downloads yet. Add a local video to test player, history, playlists and menus.</div>}
         {items.map(item => <div key={item.id} className="item">
-          <div className="thumb" onClick={()=>openPlayer(item, items)}><I.play/></div>
+          <div className="thumb" onClick={()=>openPlayer(item, items)}>{item.thumb && !String(item.thumb).startsWith('blob:') ? <img src={item.thumb} alt="" /> : <I.play/>}</div>
           <div className="meta" onClick={()=>openPlayer(item, items)}>
             <div className="title">{item.title||item.name}</div>
             <div className="sub">{item.provider||'LOCAL'} • {fmtBytes(item.size||0)}</div>

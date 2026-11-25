@@ -102,7 +102,7 @@ export default function PlaylistScreen({ state, save, showToast, openPlayer, set
       <div className="list">
         {items.length===0 && <div className="empty">No videos in this playlist yet.</div>}
         {items.map(item => <div key={item.id} className="item">
-          <div className="thumb" onClick={()=>openPlayer(item, items)}><I.play/></div>
+          <div className="thumb" onClick={()=>openPlayer(item, items)}>{item.thumb && !String(item.thumb).startsWith('blob:') ? <img src={item.thumb} alt="" /> : <I.play/>}</div>
           <div className="meta" onClick={()=>openPlayer(item, items)}>
             <div className="title">{item.title||item.name}</div>
             <div className="sub">{item.provider||'LOCAL'}</div>

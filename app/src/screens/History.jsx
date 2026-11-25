@@ -10,7 +10,7 @@ export default function HistoryScreen({ state, save, showToast, openPlayer, setC
 
   const removeOne = (id) => save({ history: (state.history||[]).filter(h=>h.id!==id) })
   const clearAll = () => setConfirm({ title:'Clear history', steps:['Clear all watch history?','Confirm again. This cannot be undone.'], confirmLabel:'Clear', onConfirm: async()=>{ await save({ history: [] }); showToast('History cleared') } })
-  const play = (h) => openPlayer({ id:h.mediaId||h.id, title:h.title, name:h.name, src:h.src, provider:h.provider, kind:h.kind, position:h.position||0 }, items.map(x=>({id:x.mediaId||x.id,title:x.title,name:x.name,src:x.src,provider:x.provider,kind:x.kind,position:x.position||0})))
+  const play = (h) => openPlayer({ id:h.mediaId||h.id, title:h.title, name:h.name, src:h.src, thumb:h.thumb, thumbPath:h.thumbPath, provider:h.provider, kind:h.kind, position:h.position||0 }, items.map(x=>({id:x.mediaId||x.id,title:x.title,name:x.name,src:x.src,thumb:x.thumb,thumbPath:x.thumbPath,provider:x.provider,kind:x.kind,position:x.position||0})))
 
   return <div className="screen">
     <h1>History</h1>
@@ -30,7 +30,7 @@ export default function HistoryScreen({ state, save, showToast, openPlayer, setC
       <div className="list">
         {items.length===0 && <div className="empty">No history yet. Play a local video to see it here.</div>}
         {items.map(h => <div key={h.id} className="item">
-          <div className="thumb" onClick={()=>play(h)}>{fmtTime(h.position||0)}</div>
+          <div className="thumb" onClick={()=>play(h)} style={{position:'relative'}}>{h.thumb && !String(h.thumb).startsWith('blob:') ? <img src={h.thumb} alt="" /> : <span style={{fontSize:10,color:'#aaa'}}>No preview</span>}<div style={{position:'absolute',right:4,bottom:4,background:'rgba(0,0,0,.75)',color:'#fff',fontSize:10,padding:'1px 4px',borderRadius:4}}>{fmtTime(h.position||0)}</div></div>
           <div className="meta" onClick={()=>play(h)}>
             <div className="title">{h.title||h.name}</div>
             <div className="sub">{h.provider||'LOCAL'} • {h.watchCount?`${h.watchCount} watch`:'Watched'} • {new Date(h.watchedAt||Date.now()).toLocaleString()}</div>

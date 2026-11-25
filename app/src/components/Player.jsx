@@ -92,7 +92,10 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect }
     {(show || !playing || loading || err) && <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',justifyContent:'space-between',padding:'max(14px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom))'}}>
       <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',pointerEvents:'auto'}}>
         <button className="iconbtn" onClick={onClose} style={{background:'rgba(0,0,0,.45)'}}>✕</button>
-        <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{item.title||item.name}</div><div className="small">{hold2x?'2x speed':`${speed}x`}{item.provider?` • ${item.provider}`:''}</div></div>
+        <div style={{display:'flex',alignItems:'center',gap:10,flex:1,minWidth:0}}>
+          <div style={{width:52,height:32,borderRadius:8,overflow:'hidden',background:'#111',border:'1px solid #333',display:'grid',placeItems:'center',flex:'0 0 auto'}}>{item.thumb && !String(item.thumb).startsWith('blob:') ? <img src={item.thumb} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <span style={{fontSize:10,color:'#888'}}>VID</span>}</div>
+          <div style={{minWidth:0}}><div style={{fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{item.title||item.name}</div><div className="small">{hold2x?'2x speed':`${speed}x`}{item.provider?` • ${item.provider}`:''}</div></div>
+        </div>
         <button className="iconbtn" onClick={()=>setLockedUI(v=>!v)} style={{background:'rgba(0,0,0,.45)'}}>{lockedUI?'🔒':'🔓'}</button>
       </div>
 
