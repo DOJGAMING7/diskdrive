@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: terabox-resolver
+    runtime: node
+    plan: free
+    rootDir: server/terabox-resolver
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: TERABOX_NDUS
+        sync: false
+      - key: TERABOX_COOKIE
+        sync: false
+      - key: RESOLVER_SECRET
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: "*"
