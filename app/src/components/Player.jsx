@@ -3,7 +3,7 @@ import { fmtTime } from '../lib/store.js'
 
 import { resolveTeraboxLink } from '../lib/terabox.js'
 
-export default function Player({ item, queue=[], onClose, onProgress, onSelect, showToast, enqueueDownload, cancelDownload, downloadJobs=[], resolverUrl, resolverKey }) {
+export default function Player({ item, queue=[], onClose, onProgress, onSelect, showToast, enqueueDownload, cancelDownload, downloadJobs=[], resolverUrl, resolverKey, downloadDir='Download' }) {
   const wrapRef = useRef(null)
   const videoRef = useRef(null)
   const hideTimer = useRef(null)
@@ -165,7 +165,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
         {!lockedUI && <button className="iconbtn" onClick={onClose} style={{background:'rgba(0,0,0,.45)'}}>✕</button>}
         {!lockedUI && <div style={{display:'flex',alignItems:'center',gap:10,flex:1,minWidth:0}}>
           <div style={{width:52,height:32,borderRadius:8,overflow:'hidden',background:'#111',border:'1px solid #333',display:'grid',placeItems:'center',flex:'0 0 auto'}}>{item.thumb && !String(item.thumb).startsWith('blob:') ? <img src={item.thumb} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <span style={{fontSize:10,color:'#888'}}>VID</span>}</div>
-          <div style={{minWidth:0}}><div style={{fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{item.title||item.name}</div><div className="small">{hold2x?'2x speed':`${speed}x`}{item.provider?` • ${item.provider}`:''}</div></div>
+          <div style={{minWidth:0}}><div style={{fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{item.title||item.name}</div><div className="small">{hold2x?'2x speed':`${speed}x`}{item.provider?` • ${item.provider}`:''}{activeJob?` • ${activeJob.status} ${activeJob.progress||0}%`:''}</div></div>
         </div>}
         <button className="iconbtn" onClick={()=>setLockedUI(v=>!v)} style={{background:'rgba(0,0,0,.45)',marginLeft: lockedUI?'auto':0}}>{lockedUI?'🔒':'🔓'}</button>
       </div>
@@ -181,7 +181,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
           <div>{err}</div>
           <div className="row" style={{marginTop:8}}>
             {(item.proxyStreamUrl || item.proxyDownloadUrl || item.src) && <button className="btn ghost" onClick={()=>window.open(item.proxyStreamUrl || item.proxyDownloadUrl || item.src, '_blank', 'noopener,noreferrer')}>Open in other player</button>}
-            {activeJob ? <button className="btn ghost" onClick={()=>cancelDownload?.(activeJob.id)}>Cancel {activeJob.progress||0}%</button> : <button className="btn ghost" onClick={()=>{ if (item?.nativePath || item?.stored==='app-private' || item?.stored==='native-external') { import('../lib/export.js').then(m=>m.saveToPhone(item, 'Download')).then(()=>showToast?.('Saved to device')).catch(()=>showToast?.('Save failed')); return } if(enqueueDownload) enqueueDownload(item); else window.open(item.proxyDownloadUrl || item.downloadUrl || item.src, '_blank') }}>{(item?.nativePath||item?.stored==='app-private'||item?.stored==='native-external')?'Save to phone':'Download'}</button>}
+            {activeJob ? <button className="btn ghost" onClick={()=>cancelDownload?.(activeJob.id)}>Cancel {activeJob.progress||0}%</button> : <button className="btn ghost" onClick={()=>{ if (item?.nativePath || item?.stored==='app-private' || item?.stored==='native-external') { import('../lib/export.js').then(m=>m.saveToPhone(item, downloadDir)).then(()=>showToast?.('Saved to device')).catch(()=>showToast?.('Save failed')); return } if(enqueueDownload) enqueueDownload(item); else window.open(item.proxyDownloadUrl || item.downloadUrl || item.src, '_blank') }}>{(item?.nativePath||item?.stored==='app-private'||item?.stored==='native-external')?'Save to phone':'Download'}</button>}
             {item.sourceUrl && resolverUrl && <button className="btn ghost" onClick={async()=>{ try{ setLoading(true); setErr('Re-resolving...'); const fresh=await resolveTeraboxLink(item.sourceUrl,{resolverUrl,resolverKey}); setLoading(false); if(fresh?.src) onSelect({...item,...fresh}); }catch(e){ setLoading(false); setErr(String(e?.message||e)) } }}>Re-resolve</button>}
           </div>
         </div>}
@@ -211,7 +211,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
             </select>
             <button className="btn ghost" onClick={togglePiP}>PiP</button>
             <button className="btn ghost" onClick={()=>setShowInfo(v=>!v)}>Link</button>
-            {activeJob ? <button className="btn ghost" onClick={()=>cancelDownload?.(activeJob.id)}>{activeJob.status==='queued'?'Queued…':'Downloading…'} {activeJob.progress||0}% • Cancel</button> : <button className="btn ghost" onClick={()=>{ if(enqueueDownload) enqueueDownload(item); else window.open(item.downloadUrl||item.directUrl||item.src,'_blank') }}>Download</button>}
+            {activeJob ? <button className="btn ghost" onClick={()=>cancelDownload?.(activeJob.id)}>{activeJob.status==='queued'?'Queued…':'Downloading…'} {activeJob.progress||0}% • Cancel</button> : <button className="btn ghost" onClick={()=>{ if (item?.nativePath || item?.stored==='app-private' || item?.stored==='native-external') { import('../lib/export.js').then(m=>m.saveToPhone(item, downloadDir||'Download')).catch(()=>{}); showToast?.('Saved to device'); return } if(enqueueDownload) enqueueDownload(item); else window.open(item.downloadUrl||item.directUrl||item.src,'_blank') }}>{(item?.nativePath||item?.stored==='app-private'||item?.stored==='native-external')?'Save to phone':'Download'}</button>}
             {queue.length>1 && <button className="btn ghost" onClick={()=>setShowQueue(v=>!v)}>Queue</button>}
             {queue[idx-1] && <button className="btn ghost" onClick={()=>onSelect(queue[idx-1])}>Prev</button>}
             {queue[idx+1] && <button className="btn ghost" onClick={()=>onSelect(queue[idx+1])}>Next</button>}

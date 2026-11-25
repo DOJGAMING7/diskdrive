@@ -123,7 +123,7 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
     </div>
 
     {downloadJobs.length > 0 && <div className="card">
-      <div className="section-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span>Download queue</span>{downloadJobs.some(j=>['done','error','cancelled'].includes(j.status)) && <button className="btn ghost" style={{padding:'4px 10px',minHeight:30,fontSize:12}} onClick={()=>clearDoneDownloads?.()}>Clear</button>}</div>
+      <div className="section-title" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span>Download queue</span><div className="row" style={{gap:6}}>{downloadJobs.some(j=>['error','cancelled'].includes(j.status)) && <button className="btn ghost" style={{padding:'4px 10px',minHeight:30,fontSize:12}} onClick={()=>{ downloadJobs.filter(j=>['error','cancelled'].includes(j.status)).forEach(j=>enqueueDownload?.(j)); }}>Retry failed</button>}{downloadJobs.some(j=>['done','error','cancelled'].includes(j.status)) && <button className="btn ghost" style={{padding:'4px 10px',minHeight:30,fontSize:12}} onClick={()=>clearDoneDownloads?.()}>Clear</button>}</div></div>
       <div className="list">
         {downloadJobs.slice().reverse().map(job => <div className="item" key={job.id} style={{flexDirection:'column',alignItems:'stretch'}}>
           <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center'}}>
@@ -165,7 +165,7 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
           <div className="thumb" onClick={()=>openPlayer(item, items)}>{item.thumb && !String(item.thumb).startsWith('blob:') ? <img src={item.thumb} alt="" /> : <I.play/>}</div>
           <div className="meta" onClick={()=>openPlayer(item, items)}>
             <div className="title">{item.title||item.name}</div>
-            <div className="sub">{item.provider||'LOCAL'} • {item.size ? fmtBytes(item.size) : (item.sizeHuman||'Unknown size')}{item.date?` • ${item.date}`:''}{item.savedPath?` • Saved`:''}</div>
+            <div className="sub">{item.provider||'LOCAL'} • {item.size ? fmtBytes(item.size) : (item.sizeHuman||'Unknown size')}{item.date?` • ${item.date}`:''}{item.savedPath?` • ${item.stored==='app-private'?'In-app':'Device'} saved`:''}</div>
           </div>
           <div className="row" style={{gap:6}}>
             <button className="btn ghost" style={{padding:'8px 10px',minHeight:36}} onClick={()=>downloadItem(item)}>{(item?.nativePath||item?.stored==='app-private'||item?.stored==='native-external')?'Save to phone':'Download'}</button>
