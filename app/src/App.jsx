@@ -5,6 +5,7 @@ import { sha256, verifyHash } from './lib/hash.js'
 import { uid, now } from './lib/id.js'
 import { initNative, onAppState } from './lib/native.js'
 import { checkAndUpdateBundle, getBundleMeta, getCachedBundleUrl } from './lib/updater.js'
+import { createDownloadManager } from './lib/downloadManager.js'
 import { withTimeout, bootStatus } from './lib/async.js'
 import { generateThumbnail, persistThumbnail, resolveThumb } from './lib/thumb.js'
 import Player from './components/Player.jsx'
@@ -46,8 +47,25 @@ export default function App() {
   const [confirm, setConfirm] = useState(null)
   const [bundleStatus, setBundleStatus] = useState(null)
   const [resolveState, setResolveState] = useState({ provider:'AUTO', link:'', busy:false, progress:{ active:false,total:0,done:0,current:'',errors:[] }, resolvedItems:[] })
+  const [downloadJobs, setDownloadJobs] = useState([])
+  const downloadMgr = useRef(null)
   const lockTimer = useRef(null)
   const lastActive = useRef(Date.now())
+
+  useEffect(() => {
+    downloadMgr.current = createDownloadManager({
+      onUpdate: (jobs) => setDownloadJobs(jobs),
+      onComplete: (job) => {
+        if (job.status === 'done') {
+          const item = { id: job.itemId || uid(), title: job.title, name: job.name, fileName: job.fileName, provider: job.provider || 'TERABOX', kind: 'local', src: job.downloadUrl || job.directUrl || job.src, directUrl: job.directUrl, downloadUrl: job.downloadUrl, sourceUrl: job.sourceUrl, thumb: job.thumb, thumbPath: job.thumbPath, date: job.date, size: job.size, sizeHuman: job.sizeHuman, downloadedAt: Date.now(), savedPath: job.savedPath, savedDirectory: job.savedDirectory }
+          addDownload(item)
+          showToast(`Downloaded: ${job.title || job.name}`)
+        } else if (job.status === 'error') {
+          showToast(`Download failed: ${job.error?.slice(0,60) || 'error'}`)
+        }
+      }
+    })
+  }, [])
 
   const setBoot = (msg) => { setBootMsg(msg); bootStatus(msg) }
   useEffect(() => { withTimeout(initNative(), 3000, 'native init').catch((e)=>console.warn(e)) }, [])
@@ -192,10 +210,17 @@ export default function App() {
   const addDownload = async (item) => {
     setState(prev => {
       const base = prev || {}
-      const downloads = [{ ...item, id: item.id || uid(), createdAt: Date.now(), downloadedAt: Date.now() }, ...(base.downloads||[]).filter(d => !(item.sourceUrl && d.sourceUrl===item.sourceUrl) && !(d.src && d.src===item.src))]
+      const downloads = [{ ...item, id: item.id || uid(), createdAt: item.createdAt || Date.now(), downloadedAt: item.downloadedAt || Date.now() }, ...(base.downloads||[]).filter(d => !(item.sourceUrl && d.sourceUrl===item.sourceUrl) && !(d.src && d.src===item.src))]
       withTimeout(persist.downloads(downloads), 3000, 'save downloads').catch(console.warn)
       return { ...base, downloads }
     })
+  }
+
+  const enqueueDownload = (item) => {
+    const dir = state?.settings?.downloadDir || 'Download'
+    if (!downloadMgr.current) { showToast('Download manager not ready'); return }
+    downloadMgr.current.enqueue(item, dir)
+    showToast('Download queued')
   }
 
   if (!ready) return <div className="overlay" style={{background:'#000',color:'#fff'}}><div className="panel" style={{background:'#0a0a0a',color:'#fff'}}><h2 style={{color:'#fff'}}>DISKDRIVE</h2><p style={{color:'#ddd'}}>{bootMsg}</p><div className="small" style={{marginTop:12,color:'#bbb'}}>If startup is stuck, wait a few seconds for the error screen.</div></div></div>
@@ -223,8 +248,8 @@ export default function App() {
       <div className="ver">DISKDRIVE V1</div>
     </div>
 
-    {tab==='home' && <Home state={state} save={save} showToast={showToast} openPlayer={openPlayer} setTab={setTab} addDownload={addDownload} resolveState={resolveState} setResolveState={setResolveState} />}
-    {tab==='download' && <Downloads state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} />}
+    {tab==='home' && <Home state={state} save={save} showToast={showToast} openPlayer={openPlayer} setTab={setTab} addDownload={addDownload} enqueueDownload={enqueueDownload} resolveState={resolveState} setResolveState={setResolveState} />}
+    {tab==='download' && <Downloads state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} downloadJobs={downloadJobs} enqueueDownload={enqueueDownload} />}
     {tab==='history' && <HistoryScreen state={state} save={save} showToast={showToast} openPlayer={openPlayer} setConfirm={setConfirm} />}
     {tab==='playlist' && <PlaylistScreen state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} />}
     {tab==='settings' && <SettingsScreen state={state} save={save} showToast={showToast} onLock={()=>{ if(state.pinEnabled && state.pinHash) setLocked(true); else showToast('Enable PIN lock first') }} bundleStatus={bundleStatus} setBundleStatus={setBundleStatus} />}

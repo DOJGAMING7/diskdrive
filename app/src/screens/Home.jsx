@@ -16,7 +16,7 @@ function guessTitle(text, url) {
   return nonUrl || ''
 }
 
-export default function Home({ state, save, showToast, openPlayer, setTab, addDownload, resolveState, setResolveState }) {
+export default function Home({ state, save, showToast, openPlayer, setTab, addDownload, enqueueDownload, resolveState, setResolveState }) {
   const provider = resolveState?.provider || 'AUTO'
   const link = resolveState?.link || ''
   const busy = !!resolveState?.busy
@@ -101,15 +101,14 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
   }
 
   const downloadOne = async (item) => {
+    if (enqueueDownload) { enqueueDownload(item); return }
     try {
       showToast('Downloading…')
       const { saveToPhone } = await import('../lib/export.js')
       const res = await saveToPhone(item, state.settings?.downloadDir || 'Download')
       showToast(res?.status==='opened'?'Opened in browser':'Download saved')
     } catch (e) {
-      const url = item.downloadUrl || item.directUrl || item.src
-      if (url) window.open(url, '_blank', 'noopener,noreferrer')
-      else showToast('Download failed')
+      showToast('Download failed')
     }
   }
 

@@ -5,7 +5,7 @@ import { importLocalFile, deleteNativeFile } from '../lib/files.js'
 import { saveToPhone as exportToPhone } from '../lib/export.js'
 import { makeZip } from '../lib/zip.js'
 
-export default function Downloads({ state, save, showToast, openPlayer, setMenu, setConfirm }) {
+export default function Downloads({ state, save, showToast, openPlayer, setMenu, setConfirm, downloadJobs=[], enqueueDownload }) {
   const [q, setQ] = useState('')
   const [provider, setProvider] = useState('ALL')
   const fileRef = useRef()
@@ -30,7 +30,8 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
     onConfirm: async () => { await deleteNativeFile(item); await save({ downloads: (state.downloads||[]).filter(d=>d.id!==item.id) }); showToast('Deleted') }
   })
   const saveToPhone = async (item) => {
-    try { await exportToPhone(item); showToast('Saved to device') } catch (e) { showToast(item?.kind==='remote' ? 'Remote save may be blocked by CORS. Use Download in app/browser.' : 'Could not save file') }
+    if (enqueueDownload) { enqueueDownload(item); return }
+    try { const res = await exportToPhone(item, state.settings?.downloadDir || 'Download'); showToast(res?.status==='opened'?'Opened in browser':'Saved to device') } catch (e) { showToast(item?.kind==='remote' ? 'Remote save failed. Try Download button.' : 'Could not save file') }
   }
   const saveZip = async (item) => {
     const wantPw = window.confirm('Password protect ZIP?\nOK = Yes, Cancel = No')
@@ -75,6 +76,21 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
         {['ALL','TERABOX','DISKWALA','LOCAL'].map(p=><button key={p} className={`chip ${provider===p?'active':''}`} onClick={()=>setProvider(p)}>{p}</button>)}
       </div>
     </div>
+
+    {downloadJobs.length > 0 && <div className="card">
+      <div className="section-title">Download queue</div>
+      <div className="list">
+        {downloadJobs.slice().reverse().map(job => <div className="item" key={job.id} style={{flexDirection:'column',alignItems:'stretch'}}>
+          <div style={{display:'flex',justifyContent:'space-between',gap:8}}>
+            <div style={{minWidth:0}}><div className="title" style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{job.title||job.name}</div><div className="sub">{job.status} {job.progress?`• ${job.progress}%`:''} {job.error?`• ${job.error}`:''}</div></div>
+            <div className="sub">{job.savedPath ? 'Saved' : ''}</div>
+          </div>
+          <div style={{height:8,background:'#111',border:'1px solid #2a2a2a',borderRadius:999,overflow:'hidden',marginTop:8}}>
+            <div style={{width:`${job.progress||0}%`,height:'100%',background:'#fff',transition:'width .2s'}} />
+          </div>
+        </div>)}
+      </div>
+    </div>}
 
     <div className="card">
       <div className="section-title">Library</div>
