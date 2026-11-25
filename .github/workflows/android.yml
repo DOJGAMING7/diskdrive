@@ -23,10 +23,16 @@ jobs:
       - name: Build web
         working-directory: app
         run: npm run build
+      - name: Lint source
+        working-directory: app
+        run: npx eslint -c eslint.config.js "src/**/*.{js,jsx}"
       - name: Verify web build
         working-directory: app
         run: |
           test -f dist/index.html
+          grep -q 'id="boot"' dist/index.html
+          grep -q '__diskdriveShowError' dist/index.html
+          node -e "const fs=require('fs');const html=fs.readFileSync('dist/index.html','utf8');const m=html.match(/src=\"\.\/assets\/(index-[^"]+\.js)\"/);if(!m)throw new Error('bundle script not found');require('child_process').execSync('node --check dist/assets/'+m[1],{stdio:'inherit'});"
           ls -la dist
       - name: Sync Capacitor
         working-directory: app
@@ -35,6 +41,8 @@ jobs:
         working-directory: app
         run: |
           test -f android/app/src/main/assets/public/index.html
+          grep -q 'id="boot"' android/app/src/main/assets/public/index.html
+          grep -q '__diskdriveShowError' android/app/src/main/assets/public/index.html
           ls -la android/app/src/main/assets/public
       - name: Build APK
         working-directory: app/android
