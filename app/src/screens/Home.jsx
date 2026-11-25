@@ -9,9 +9,9 @@ export default function Home({ state, save, showToast, openPlayer, setTab }) {
   const onResolve = () => {
     const v = link.trim()
     if (!v) return showToast('Paste a link or pick a local video')
-    if (provider === 'TERABOX' || (provider === 'AUTO' && /tera|1024terabox|terabox/i.test(v))) return showToast('Coming in Plan 2')
-    if (provider === 'DISKWALA' || /diskwala/i.test(v)) return showToast('Coming in Plan 3')
-    showToast('Coming in Plan 2')
+    if (provider === 'TERABOX' || (provider === 'AUTO' && /tera|1024terabox|terabox/i.test(v))) return showToast('Coming soon')
+    if (provider === 'DISKWALA' || /diskwala/i.test(v)) return showToast('Coming soon')
+    showToast('Coming soon')
   }
   const onLocal = async (e) => {
     const file = e.target.files?.[0]
@@ -27,7 +27,7 @@ export default function Home({ state, save, showToast, openPlayer, setTab }) {
 
   return <div className="screen">
     <h1>Play anything. Keep it private.</h1>
-    <p className="lead">DiskDrive is built for local playback first. Terabox and DiskWala links are visible now and will be connected in upcoming plans.</p>
+    <p className="lead">Play local videos now. Terabox and DiskWala links will be available soon.</p>
 
     <div className="card">
       <div className="chips">
@@ -37,7 +37,7 @@ export default function Home({ state, save, showToast, openPlayer, setTab }) {
         <input className="input" style={{flex:1}} value={link} onChange={e=>setLink(e.target.value)} placeholder="Paste a Terabox or DiskWala link" />
         <button className="btn" onClick={onResolve} style={{minWidth:88}}>Add</button>
       </div>
-      <div className="small" style={{marginTop:10}}>Plan 1: link resolve is not connected. Local videos work fully.</div>
+      <div className="small" style={{marginTop:10}}>Link resolve is not connected yet. Local videos work fully.</div>
     </div>
 
     <div className="card">

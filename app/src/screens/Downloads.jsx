@@ -30,17 +30,23 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
   }
   const saveZip = async (item) => {
     const wantPw = window.confirm('Password protect ZIP?\nOK = Yes, Cancel = No')
-    if (wantPw) showToast('Password ZIP not supported in this build yet; saving normal ZIP')
+    let password = ''
+    if (wantPw) {
+      password = window.prompt('Enter ZIP password') || ''
+      if (!password) return showToast('ZIP password required')
+    }
     try {
       const blob = item?.src?.startsWith('blob:') ? await (await fetch(item.src)).blob() : await (await fetch(item.src)).blob()
       const name = (item.fileName || item.name || 'video.mp4')
-      const zip = await makeZip([{ name, blob }])
+      const zip = await makeZip([{ name, blob }], password ? { password } : {})
       const a = document.createElement('a')
       const url = URL.createObjectURL(zip)
       a.href = url; a.download = name.replace(/\.[^.]+$/, '') + '.zip'; a.click()
       setTimeout(()=>URL.revokeObjectURL(url), 5000)
-      showToast('ZIP saved')
-    } catch { showToast('Could not create ZIP') }
+      showToast(password ? 'Protected ZIP saved' : 'ZIP saved')
+    } catch (e) {
+      showToast('Could not create ZIP')
+    }
   }
   const info = (item) => setMenu({ title:'Info', items:[
     {label:`Name: ${item.name||item.title||'-'}`, onClick:()=>{}},

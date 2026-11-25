@@ -4,6 +4,7 @@ import { loadState, persist } from './lib/store.js'
 import { sha256, verifyHash } from './lib/hash.js'
 import { uid, now } from './lib/id.js'
 import { initNative, onAppState } from './lib/native.js'
+import { checkAndUpdateBundle, getBundleMeta, getCachedBundleUrl } from './lib/updater.js'
 import Player from './components/Player.jsx'
 import MenuModal from './components/MenuModal.jsx'
 import ConfirmModal from './components/ConfirmModal.jsx'
@@ -26,6 +27,7 @@ const TABS = [
 
 export default function App() {
   const [ready, setReady] = useState(false)
+  const [bootMsg, setBootMsg] = useState('Loading…')
   const [tab, setTab] = useState('home')
   const [toast, setToast] = useState('')
   const [state, setState] = useState(null)
@@ -40,11 +42,36 @@ export default function App() {
   const [playerQueue, setPlayerQueue] = useState([])
   const [menu, setMenu] = useState(null)
   const [confirm, setConfirm] = useState(null)
+  const [bundleStatus, setBundleStatus] = useState(null)
   const lockTimer = useRef(null)
   const lastActive = useRef(Date.now())
 
   useEffect(() => { initNative() }, [])
-  useEffect(() => { (async () => { const s = await loadState(); setState(s); setReady(true); if (s.adminUnlocked && s.pinEnabled && s.pinHash) setLocked(true) })() }, [])
+  useEffect(() => { (async () => {
+    const s = await loadState()
+    const serverUrl = s?.settings?.serverUrl || ''
+    if (serverUrl) {
+      setBootMsg('Checking for UI updates…')
+      const res = await checkAndUpdateBundle(serverUrl)
+      const meta = await getBundleMeta()
+      setBundleStatus({ ...res, meta })
+      const cachedUrl = await getCachedBundleUrl()
+      const params = new URLSearchParams(location.search)
+      const allowCached = !params.has('bundled')
+      const alreadyCached = sessionStorage.getItem('dd_using_cached_bundle') === '1'
+      if (cachedUrl && allowCached && !alreadyCached && (res.status === 'updated' || res.status === 'up-to-date' || res.status === 'offline')) {
+        sessionStorage.setItem('dd_using_cached_bundle', '1')
+        location.replace(cachedUrl + (cachedUrl.includes('?') ? '&' : '?') + 'cached=1')
+        return
+      }
+    } else {
+      setBundleStatus({ status:'no-server', meta: await getBundleMeta() })
+    }
+    setState(s)
+    setReady(true)
+    if (s.adminUnlocked && s.pinEnabled && s.pinHash) setLocked(true)
+  })() }, [])
+
   useEffect(() => { if (!toast) return; const t=setTimeout(()=>setToast(''),2200); return ()=>clearTimeout(t) }, [toast])
 
   useEffect(() => {
@@ -93,7 +120,7 @@ export default function App() {
     })
   }
 
-  if (!ready || !state) return <div className="overlay"><div className="panel"><h2>DISKDRIVE</h2><p>Loading…</p></div></div>
+  if (!ready || !state) return <div className="overlay"><div className="panel"><h2>DISKDRIVE</h2><p>{bootMsg}</p></div></div>
 
   if (!state.adminUnlocked) return <AdminGate input={adminInput} setInput={setAdminInput} err={adminErr} attempts={adminAttempts} waitUntil={adminWaitUntil} onSubmit={async ()=>{
     if (Date.now() < adminWaitUntil) return
@@ -112,15 +139,15 @@ export default function App() {
 
   return <div className="app">
     <div className="topbar">
-      <div className="brand"><img src="/icon.png" alt="DiskDrive" onError={(e)=>{e.currentTarget.style.display='none'}}/><div><div className="name">DISKDRIVE</div><div className="small">Private testing build</div></div></div>
-      <div className="ver">DISKDRIVE V1</div>
+      <div className="brand"><img src="./icon.png" alt="DiskDrive" onError={(e)=>{e.currentTarget.style.display='none'}}/><div><div className="name">DISKDRIVE</div><div className="small">Private testing build</div></div></div>
+      <div className="ver">DISKDRIVE</div>
     </div>
 
     {tab==='home' && <Home state={state} save={save} showToast={showToast} openPlayer={openPlayer} setTab={setTab} />}
     {tab==='download' && <Downloads state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} />}
     {tab==='history' && <HistoryScreen state={state} save={save} showToast={showToast} openPlayer={openPlayer} setConfirm={setConfirm} />}
     {tab==='playlist' && <PlaylistScreen state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} />}
-    {tab==='settings' && <SettingsScreen state={state} save={save} showToast={showToast} onLock={()=>{ if(state.pinEnabled && state.pinHash) setLocked(true); else showToast('Enable PIN lock first') }} />}
+    {tab==='settings' && <SettingsScreen state={state} save={save} showToast={showToast} onLock={()=>{ if(state.pinEnabled && state.pinHash) setLocked(true); else showToast('Enable PIN lock first') }} bundleStatus={bundleStatus} setBundleStatus={setBundleStatus} />}
 
     <nav className="bottom-nav"><div className="nav-inner">{TABS.map(t=>{ const Icon=t.icon; return <button key={t.id} className={`navbtn ${tab===t.id?'active':''}`} onClick={()=>setTab(t.id)}><Icon/><span>{t.label}</span></button> })}</div></nav>
 
