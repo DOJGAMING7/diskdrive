@@ -2,10 +2,14 @@ import { Capacitor } from '@capacitor/core'
 import { App as CapApp } from '@capacitor/app'
 import { StatusBar, Style } from '@capacitor/status-bar'
 
-export const isNative = () => Capacitor.isNativePlatform()
+export const isNative = () => {
+  try { return !!Capacitor?.isNativePlatform?.() } catch { return false }
+}
 export async function initNative() {
   if (!isNative()) return
-  try { await StatusBar.setStyle({ style: Style.Dark }); await StatusBar.setBackgroundColor({ color: '#000000' }) } catch {}
+  try { await StatusBar.setStyle({ style: Style.Dark }) } catch {}
+  try { await StatusBar.setBackgroundColor({ color: '#000000' }) } catch {}
+  try { await StatusBar.setOverlaysWebView({ overlay: false }) } catch {}
 }
 export function onAppState(cb) {
   if (!isNative()) {

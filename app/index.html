@@ -5,9 +5,44 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
     <title>DiskDrive</title>
+    <style>
+      html,body{margin:0;background:#000;color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+      #boot{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center}
+      #boot .box{max-width:420px;width:100%}
+      #boot .logo{font-size:28px;font-weight:800;letter-spacing:2px;margin-bottom:12px}
+      #boot .msg{color:#bbb;font-size:14px;line-height:1.5}
+      #boot .err{white-space:pre-wrap;text-align:left;background:#111;border:1px solid #333;padding:12px;border-radius:12px;color:#fff;font-size:12px;margin-top:16px;max-height:40vh;overflow:auto}
+      #boot button{margin-top:16px;background:#fff;color:#000;border:0;padding:12px 16px;border-radius:12px;font-weight:700;font-size:14px}
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot">
+        <div class="box">
+          <div class="logo">DISKDRIVE</div>
+          <div class="msg" id="boot-msg">Loading…</div>
+          <div id="boot-err" class="err" style="display:none"></div>
+          <button id="boot-reload" style="display:none" onclick="location.reload()">Reload</button>
+        </div>
+      </div>
+    </div>
+    <script>
+      (function(){
+        var shown=false;
+        function showError(msg){
+          if(shown) return; shown=true;
+          var m=document.getElementById('boot-msg'); if(m) m.textContent='Something went wrong.';
+          var e=document.getElementById('boot-err'); if(e){ e.style.display='block'; e.textContent=String(msg||'Unknown startup error'); }
+          var b=document.getElementById('boot-reload'); if(b) b.style.display='inline-block';
+        }
+        window.__diskdriveShowError = showError;
+        window.addEventListener('error', function(ev){ showError(ev.error && ev.error.stack ? ev.error.stack : (ev.message || 'Script error')); });
+        window.addEventListener('unhandledrejection', function(ev){ var r=ev.reason; showError(r && r.stack ? r.stack : (r && r.message ? r.message : String(r))); });
+        setTimeout(function(){
+          if(!window.__diskdriveMounted){ showError('App did not start. Check installation or update.'); }
+        }, 12000);
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

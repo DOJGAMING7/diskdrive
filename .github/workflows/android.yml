@@ -23,9 +23,19 @@ jobs:
       - name: Build web
         working-directory: app
         run: npm run build
+      - name: Verify web build
+        working-directory: app
+        run: |
+          test -f dist/index.html
+          ls -la dist
       - name: Sync Capacitor
         working-directory: app
         run: npx cap sync android
+      - name: Verify Android assets
+        working-directory: app
+        run: |
+          test -f android/app/src/main/assets/public/index.html
+          ls -la android/app/src/main/assets/public
       - name: Build APK
         working-directory: app/android
         run: chmod +x gradlew && ./gradlew assembleDebug

@@ -46,30 +46,42 @@ export default function App() {
   const lockTimer = useRef(null)
   const lastActive = useRef(Date.now())
 
-  useEffect(() => { initNative() }, [])
+  useEffect(() => { initNative().catch(()=>{}) }, [])
   useEffect(() => { (async () => {
-    const s = await loadState()
-    const serverUrl = s?.settings?.serverUrl || ''
-    if (serverUrl) {
-      setBootMsg('Checking for UI updates…')
-      const res = await checkAndUpdateBundle(serverUrl)
-      const meta = await getBundleMeta()
-      setBundleStatus({ ...res, meta })
-      const cachedUrl = await getCachedBundleUrl()
-      const params = new URLSearchParams(location.search)
-      const allowCached = !params.has('bundled')
-      const alreadyCached = sessionStorage.getItem('dd_using_cached_bundle') === '1'
-      if (cachedUrl && allowCached && !alreadyCached && (res.status === 'updated' || res.status === 'up-to-date' || res.status === 'offline')) {
-        sessionStorage.setItem('dd_using_cached_bundle', '1')
-        location.replace(cachedUrl + (cachedUrl.includes('?') ? '&' : '?') + 'cached=1')
-        return
+    try {
+      const s = await loadState()
+      const serverUrl = s?.settings?.serverUrl || ''
+      if (serverUrl) {
+        setBootMsg('Checking for UI updates…')
+        try {
+          const res = await checkAndUpdateBundle(serverUrl)
+          const meta = await getBundleMeta()
+          setBundleStatus({ ...res, meta })
+          const cachedUrl = await getCachedBundleUrl()
+          const params = new URLSearchParams(location.search)
+          const allowCached = !params.has('bundled')
+          const alreadyCached = sessionStorage.getItem('dd_using_cached_bundle') === '1'
+          if (cachedUrl && allowCached && !alreadyCached && (res.status === 'updated' || res.status === 'up-to-date' || res.status === 'offline')) {
+            sessionStorage.setItem('dd_using_cached_bundle', '1')
+            location.replace(cachedUrl + (cachedUrl.includes('?') ? '&' : '?') + 'cached=1')
+            return
+          }
+        } catch (e) {
+          console.warn('bundle update failed', e)
+          setBundleStatus({ status:'offline', error: String(e?.message||e) })
+        }
+      } else {
+        try { setBundleStatus({ status:'no-server', meta: await getBundleMeta() }) } catch {}
       }
-    } else {
-      setBundleStatus({ status:'no-server', meta: await getBundleMeta() })
+      setState(s)
+      setReady(true)
+      window.__diskdriveMounted = true
+      if (s.adminUnlocked && s.pinEnabled && s.pinHash) setLocked(true)
+    } catch (e) {
+      console.error(e)
+      window.__diskdriveShowError?.(e?.stack || e?.message || String(e))
+      setBootMsg('Startup failed.')
     }
-    setState(s)
-    setReady(true)
-    if (s.adminUnlocked && s.pinEnabled && s.pinHash) setLocked(true)
   })() }, [])
 
   useEffect(() => { if (!toast) return; const t=setTimeout(()=>setToast(''),2200); return ()=>clearTimeout(t) }, [toast])
@@ -120,7 +132,7 @@ export default function App() {
     })
   }
 
-  if (!ready || !state) return <div className="overlay"><div className="panel"><h2>DISKDRIVE</h2><p>{bootMsg}</p></div></div>
+  if (!ready || !state) return <div className="overlay"><div className="panel"><h2>DISKDRIVE</h2><p>{bootMsg}</p><div className="small" style={{marginTop:12}}>If this stays here, the startup error screen should appear.</div></div></div>
 
   if (!state.adminUnlocked) return <AdminGate input={adminInput} setInput={setAdminInput} err={adminErr} attempts={adminAttempts} waitUntil={adminWaitUntil} onSubmit={async ()=>{
     if (Date.now() < adminWaitUntil) return
