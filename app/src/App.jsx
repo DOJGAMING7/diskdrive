@@ -302,8 +302,3 @@ export default function App() {
     {toast && <div className="toast">{toast}</div>}
   </div>
 }
-MenuModal menu={menu} onClose={()=>setMenu(null)} />}
-    {confirm && <ConfirmModal confirm={confirm} onClose={()=>setConfirm(null)} />}
-    {toast && <div className="toast">{toast}</div>}
-  </div>
-}
