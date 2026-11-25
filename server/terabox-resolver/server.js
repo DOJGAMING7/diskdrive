@@ -112,7 +112,8 @@ const server = http.createServer(async (req, res) => {
     if (!ndus && !cookie) return json(res, 500, { ok: false, error: "resolver_not_configured", message: "TERABOX_NDUS or TERABOX_COOKIE secret missing." }, origin);
     try {
       const result = await resolveTerabox(input, { teraboxNdus: ndus, teraboxCookie: cookie });
-      const base = `${url.protocol}//${url.host}`;
+      const proto = String(req.headers["x-forwarded-proto"] || url.protocol || "https:").replace(/:$/,'');
+      const base = `${proto}://${req.headers["x-forwarded-host"] || url.host}`;
       const key = RESOLVER_SECRET ? `&key=${encodeURIComponent(RESOLVER_SECRET)}` : "";
       if (result.directUrl) {
         const prox = `${base}/stream?url=${encodeURIComponent(result.directUrl)}&name=${encodeURIComponent(result.name || "video")}${key}`;
