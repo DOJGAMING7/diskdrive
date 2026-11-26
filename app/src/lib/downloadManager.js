@@ -50,16 +50,22 @@ function normalizeUrlList(job) {
 function isTeraboxHost(url='') {
   try { const h = new URL(url).hostname.toLowerCase(); return h.includes('terabox') || h.includes('1024tera') || h.includes('teraboxapp') || h.includes('4funbox') || h.includes('mirrobox') || h.includes('nephobox') || h.includes('momerybox') || h.includes('tibibox') } catch { return false }
 }
-function dlHeaders(job, targetUrl='') {
-  const h = {
-    'Accept': '*/*',
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
-  }
+function dlHeaderVariants(job, targetUrl='') {
+  const ua = 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
   const ref = job.sourceUrl || targetUrl || job.directUrl || job.downloadUrl || job.src || ''
-  try { const u = new URL(ref); h['Referer'] = u.origin + '/' } catch {}
+  const shareOrigin = (() => { try { return new URL(ref).origin + '/' } catch { return 'https://www.terabox.com/' } })()
+  const base = { 'Accept': '*/*', 'User-Agent': ua }
+  const variants = [
+    { name: 'no-cookie,terabox-ref', headers: { ...base, 'Referer': 'https://www.terabox.com/' } },
+    { name: 'no-cookie,share-ref', headers: { ...base, 'Referer': shareOrigin } },
+    { name: 'no-cookie,no-ref', headers: { ...base } },
+  ]
   const cookie = String(job.teraboxCookie || getTeraboxCookie?.() || '').trim()
-  if (cookie && isTeraboxHost(targetUrl || ref)) h['Cookie'] = cookie.includes('ndus=') ? cookie : `ndus=${cookie}`
-  return h
+  if (cookie && isTeraboxHost(targetUrl || ref)) {
+    const ck = cookie.includes('ndus=') ? cookie : `ndus=${cookie}`
+    variants.push({ name: 'cookie,terabox-ref', headers: { ...base, 'Referer': 'https://www.terabox.com/', 'Cookie': ck } })
+  }
+  return variants
 }
 
 async function blobToBase64(blob) {
@@ -120,48 +126,58 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem, getTe
         const destDir = await resolveSaveDir(job.dirName || 'Download', job.storageMode || 'inapp')
         const dest = `${destDir.path}/${name}`
         const tryNative = async (dlUrl) => {
-          let lastPct = -1
-          let listener
-          try {
-            listener = await Filesystem.addListener('progress', (p) => {
-              if (p?.url !== dlUrl) return
-              const total = Number(p.contentLength || job.totalBytes || 0)
-              const bytes = Number(p.bytes || 0)
-              if (total) job.totalBytes = total
-              job.receivedBytes = bytes
-              const elapsed = Math.max(0.001, (Date.now() - (job.startedAt || Date.now())) / 1000)
-              job.speedBps = bytes / elapsed
-              job.etaSec = total && job.speedBps > 0 ? Math.max(0, Math.round((total - bytes) / job.speedBps)) : null
-              const pct = total ? Math.min(99, Math.round((bytes / total) * 100)) : job.progress
-              if (pct !== lastPct) { lastPct = pct; job.progress = pct }
-              emit()
-            })
-          } catch {}
-          try {
+          const variants = dlHeaderVariants(job, dlUrl)
+          let lastErr
+          for (const vopt of variants) {
+            if (job.status === 'cancelled') throw new DOMException('Aborted', 'AbortError')
+            let lastPct = -1
+            let listener
             try {
-              const res = await Filesystem.downloadFile({ url: dlUrl, path: dest, directory: destDir.directory, progress: true, headers: dlHeaders(job, dlUrl) })
-              if (job.status === 'cancelled') throw new DOMException('Aborted', 'AbortError')
-              if (!res?.path && !res) throw new Error('Download failed')
-            } catch (nativeErr) {
-              if (job.status === 'cancelled') throw new DOMException('Aborted', 'AbortError')
-              // Fallback: patched fetch (CapacitorHttp) -> write file
-              const fres = await fetch(dlUrl, { headers: dlHeaders(job, dlUrl), credentials: 'omit', signal: ctrl.signal })
-              if (!fres.ok) throw new Error(`HTTP ${fres.status}`)
-              const blob = await fres.blob()
-              if (!blob?.size) throw nativeErr
-              const b64 = await blobToBase64(blob)
-              await Filesystem.writeFile({ path: dest, directory: destDir.directory, data: b64, recursive: true })
-              job.size = blob.size; job.totalBytes = blob.size; job.receivedBytes = blob.size
+              listener = await Filesystem.addListener('progress', (p) => {
+                if (p?.url !== dlUrl) return
+                const total = Number(p.contentLength || job.totalBytes || 0)
+                const bytes = Number(p.bytes || 0)
+                if (total) job.totalBytes = total
+                job.receivedBytes = bytes
+                const elapsed = Math.max(0.001, (Date.now() - (job.startedAt || Date.now())) / 1000)
+                job.speedBps = bytes / elapsed
+                job.etaSec = total && job.speedBps > 0 ? Math.max(0, Math.round((total - bytes) / job.speedBps)) : null
+                const pct = total ? Math.min(99, Math.round((bytes / total) * 100)) : job.progress
+                if (pct !== lastPct) { lastPct = pct; job.progress = pct }
+                emit()
+              })
+            } catch {}
+            try {
+              try {
+                const res = await Filesystem.downloadFile({ url: dlUrl, path: dest, directory: destDir.directory, progress: true, headers: vopt.headers })
+                if (job.status === 'cancelled') throw new DOMException('Aborted', 'AbortError')
+                if (!res?.path && !res) throw new Error('Download failed')
+              } catch (nativeErr) {
+                if (job.status === 'cancelled') throw new DOMException('Aborted', 'AbortError')
+                const fres = await fetch(dlUrl, { headers: vopt.headers, credentials: 'omit', signal: ctrl.signal })
+                if (!fres.ok) throw new Error(`HTTP ${fres.status} (${vopt.name})`)
+                const blob = await fres.blob()
+                if (!blob?.size) throw nativeErr
+                const b64 = await blobToBase64(blob)
+                await Filesystem.writeFile({ path: dest, directory: destDir.directory, data: b64, recursive: true })
+                job.size = blob.size; job.totalBytes = blob.size; job.receivedBytes = blob.size
+              }
+              try {
+                const st = await Filesystem.stat({ path: dest, directory: destDir.directory })
+                if (st?.size) { job.size = Number(st.size); job.totalBytes = Number(st.size); job.receivedBytes = Number(st.size) }
+                if (!st?.size && !job.totalBytes) throw new Error('Downloaded file is empty')
+              } catch (e) { if (/empty/i.test(String(e?.message||''))) throw e }
+              return true
+            } catch (e) {
+              lastErr = e
+              try { await Filesystem.deleteFile({ path: dest, directory: destDir.directory }) } catch {}
+            } finally {
+              try { await listener?.remove() } catch {}
             }
-            try {
-              const st = await Filesystem.stat({ path: dest, directory: destDir.directory })
-              if (st?.size) { job.size = Number(st.size); job.totalBytes = Number(st.size); job.receivedBytes = Number(st.size) }
-              if (!st?.size && !job.totalBytes) throw new Error('Downloaded file is empty')
-            } catch (e) { if (/empty/i.test(String(e?.message||''))) throw e }
-            return true
-          } finally {
-            try { await listener?.remove() } catch {}
           }
+          throw lastErr || new Error('Download failed')
+        }
+
         let ok = false
         let lastErr
         for (const c of candidates) {
@@ -208,39 +224,45 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem, getTe
           job.nativeUri = uri?.uri || ''
           job.srcLocal = job.nativeUri ? Capacitor.convertFileSrc(job.nativeUri) : (job.srcLocal || job.src)
         } catch { job.srcLocal = job.srcLocal || job.src }
-        }
       } else {
         const doWeb = async (dlUrl) => {
-          const res = await fetch(dlUrl, { signal: ctrl.signal, headers: dlHeaders(job, dlUrl), credentials: 'omit' })
-          if (!res.ok) throw new Error(`HTTP ${res.status}`)
-          const total = Number(res.headers.get('content-length') || 0)
-          if (res.body && total) {
-            const reader = res.body.getReader()
-            const chunks = []
-            let received = 0
-            let lastT = Date.now(), lastB = 0
-            while (true) {
-              if (ctrl.signal.aborted) throw new DOMException('Aborted', 'AbortError')
-              const { done, value } = await reader.read()
-              if (done) break
-              chunks.push(value)
-              received += value.length
-              job.receivedBytes = received
-              job.totalBytes = total
-              const nowT = Date.now()
-              const dt = (nowT - lastT) / 1000
-              if (dt >= 0.5) { job.speedBps = (received - lastB) / dt; lastT = nowT; lastB = received }
-              job.etaSec = job.speedBps > 0 ? Math.max(0, Math.round((total - received) / job.speedBps)) : null
-              job.progress = Math.min(99, Math.round((received / total) * 100))
-              emit()
-            }
-            const blob = new Blob(chunks, { type: res.headers.get('content-type') || 'video/mp4' })
-            job.size = blob.size; job.totalBytes = blob.size; job.receivedBytes = blob.size
-            return blob
+          const variants = dlHeaderVariants(job, dlUrl)
+          let lastErr
+          for (const vopt of variants) {
+            try {
+              const res = await fetch(dlUrl, { signal: ctrl.signal, headers: vopt.headers, credentials: 'omit' })
+              if (!res.ok) throw new Error(`HTTP ${res.status} (${vopt.name})`)
+              const total = Number(res.headers.get('content-length') || 0)
+              if (res.body && total) {
+                const reader = res.body.getReader()
+                const chunks = []
+                let received = 0
+                let lastT = Date.now(), lastB = 0
+                while (true) {
+                  if (ctrl.signal.aborted) throw new DOMException('Aborted', 'AbortError')
+                  const { done, value } = await reader.read()
+                  if (done) break
+                  chunks.push(value)
+                  received += value.length
+                  job.receivedBytes = received
+                  job.totalBytes = total
+                  const nowT = Date.now()
+                  const dt = (nowT - lastT) / 1000
+                  if (dt >= 0.5) { job.speedBps = (received - lastB) / dt; lastT = nowT; lastB = received }
+                  job.etaSec = job.speedBps > 0 ? Math.max(0, Math.round((total - received) / job.speedBps)) : null
+                  job.progress = Math.min(99, Math.round((received / total) * 100))
+                  emit()
+                }
+                const blob = new Blob(chunks, { type: res.headers.get('content-type') || 'video/mp4' })
+                job.size = blob.size; job.totalBytes = blob.size; job.receivedBytes = blob.size
+                return blob
+              }
+              const b = await res.blob()
+              job.size = b.size; job.totalBytes = b.size; job.receivedBytes = b.size
+              return b
+            } catch (e) { lastErr = e }
           }
-          const b = await res.blob()
-          job.size = b.size; job.totalBytes = b.size; job.receivedBytes = b.size
-          return b
+          throw lastErr || new Error('Download failed')
         }
 
         let blob

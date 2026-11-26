@@ -5,7 +5,7 @@ import { fmtTime } from '../lib/store.js'
 
 import { resolveTeraboxLink } from '../lib/terabox.js'
 
-const isLocalMediaSrc = (src='') => /^(capacitor:|file:|blob:|data:|content:)|\/_capacitor_file_\//i.test(String(src || ''))
+const isLocalMediaSrc = (src='') => /^(capacitor:|file:|blob:|data:|content:)/i.test(String(src || '')) || String(src || '').includes('/_capacitor_file_/')
 const PLAYCACHE_DIR = 'playcache'
 const MAX_CACHE_FILES = 6
 
@@ -102,16 +102,56 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
       const ext = String(currentItem.name || currentItem.title || 'video.mp4').split('.').pop()?.replace(/[^a-z0-9]/ig,'') || 'mp4'
       const path = `${PLAYCACHE_DIR}/${(currentItem.id || 'vid').replace(/[^a-zA-Z0-9_-]/g,'')}.${ext}`
       try { await Filesystem.mkdir({ path: PLAYCACHE_DIR, directory: Directory.Cache, recursive: true }) } catch {}
-      const baseHeaders = {
-        'Accept': '*/*',
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
-      }
-      try { const u = new URL(currentItem.sourceUrl || candidates[0] || ''); baseHeaders['Referer'] = u.origin + '/' } catch {}
       const cookie = String(teraboxCookie || '').trim()
-      const withCookie = (srcUrl) => {
-        const h = { ...baseHeaders }
-        try { const host = new URL(srcUrl).hostname.toLowerCase(); if (cookie && /terabox|1024tera|4funbox|mirrobox|nephobox|momerybox|tibibox/.test(host)) h['Cookie'] = cookie.includes('ndus=') ? cookie : `ndus=${cookie}` } catch {}
-        return h
+      const isTeraboxLike = (u='') => { try { return /terabox|1024tera|4funbox|mirrobox|nephobox|momerybox|tibibox/.test(new URL(u).hostname.toLowerCase()) } catch { return false } }
+      const makeHeaderVariants = (srcUrl) => {
+        const ua = 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'
+        const shareOrigin = (() => { try { return new URL(currentItem.sourceUrl || srcUrl).origin + '/' } catch { return 'https://www.terabox.com/' } })()
+        const base = { 'Accept': '*/*', 'User-Agent': ua }
+        const variants = [
+          { name: 'no-cookie,terabox-ref', headers: { ...base, 'Referer': 'https://www.terabox.com/' } },
+          { name: 'no-cookie,share-ref', headers: { ...base, 'Referer': shareOrigin } },
+          { name: 'no-cookie,no-ref', headers: { ...base } },
+        ]
+        if (cookie && isTeraboxLike(srcUrl)) {
+          const ck = cookie.includes('ndus=') ? cookie : `ndus=${cookie}`
+          variants.push({ name: 'cookie,terabox-ref', headers: { ...base, 'Referer': 'https://www.terabox.com/', 'Cookie': ck } })
+        }
+        return variants
+      }
+
+      const attemptDownload = async (srcUrl, candIdx, candTotal) => {
+        const variants = makeHeaderVariants(srcUrl)
+        let lastErr
+        for (let vi = 0; vi < variants.length; vi++) {
+          if (stale()) throw new Error('cancelled')
+          const vopt = variants[vi]
+          try {
+            if (!stale()) setErr(`Downloading local playback cache… (${candIdx}/${candTotal}, try ${vi + 1}/${variants.length})`)
+            try {
+              await Filesystem.downloadFile({ url: srcUrl, path, directory: Directory.Cache, headers: vopt.headers, progress: false })
+            } catch (nativeErr) {
+              if (stale()) throw new Error('cancelled')
+              const fres = await fetch(srcUrl, { headers: vopt.headers, credentials: 'omit' })
+              if (!fres.ok) throw new Error(`HTTP ${fres.status} (${vopt.name})`)
+              const blob = await fres.blob()
+              if (!blob?.size) throw nativeErr
+              const b64 = await blobToBase64(blob)
+              if (stale()) throw new Error('cancelled')
+              await Filesystem.writeFile({ path, directory: Directory.Cache, data: b64, recursive: true })
+            }
+            const stat = await Filesystem.stat({ path, directory: Directory.Cache }).catch(() => null)
+            if (!stat?.size) throw new Error('Downloaded file is empty')
+            const uri = await Filesystem.getUri({ path, directory: Directory.Cache })
+            const local = Capacitor.convertFileSrc(uri.uri)
+            cleanupPlayCache(path)
+            return local
+          } catch (e) {
+            lastErr = e
+            try { await Filesystem.deleteFile({ path, directory: Directory.Cache }) } catch {}
+          }
+        }
+        throw lastErr || new Error('Download failed')
       }
 
       let lastErr
@@ -120,27 +160,9 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
         const srcUrl = candidates[i]
         try {
           if (!stale()) setErr(`Downloading local playback cache… (${i + 1}/${candidates.length})`)
-          try {
-            await Filesystem.downloadFile({ url: srcUrl, path, directory: Directory.Cache, headers: baseHeaders, progress: false })
-          } catch (nativeErr) {
-            if (stale()) throw new Error('cancelled')
-            const fres = await fetch(srcUrl, { headers: withCookie(srcUrl), credentials: 'omit' })
-            if (!fres.ok) throw new Error(`HTTP ${fres.status} from Terabox CDN`)
-            const blob = await fres.blob()
-            if (!blob?.size) throw nativeErr
-            const b64 = await blobToBase64(blob)
-            if (stale()) throw new Error('cancelled')
-            await Filesystem.writeFile({ path, directory: Directory.Cache, data: b64, recursive: true })
-          }
-          const stat = await Filesystem.stat({ path, directory: Directory.Cache }).catch(() => null)
-          if (!stat?.size) throw new Error('Downloaded file is empty')
-          const uri = await Filesystem.getUri({ path, directory: Directory.Cache })
-          const local = Capacitor.convertFileSrc(uri.uri)
-          cleanupPlayCache(path)
-          return local
+          return await attemptDownload(srcUrl, i + 1, candidates.length)
         } catch (e) {
           lastErr = e
-          try { await Filesystem.deleteFile({ path, directory: Directory.Cache }) } catch {}
         }
       }
       throw lastErr || new Error('Download failed')
