@@ -206,9 +206,10 @@ export default function App() {
   }, [ready, state.downloads, state.history, state.playlists])
 
   const openPlayer = (item, queue=[]) => {
-    const q = queue.length ? queue : [item]
+    if (!item) return
+    const q = Array.isArray(queue) && queue.length ? queue : [item]
     setPlayerQueue(q)
-    setPlayerItem(item)
+    setPlayerItem({ ...item })
     setState(prev => {
       const base = prev || {}
       const existing = (base.history||[]).find(h => (item.sourceUrl && h.sourceUrl === item.sourceUrl) || (h.src && h.src === item.src))

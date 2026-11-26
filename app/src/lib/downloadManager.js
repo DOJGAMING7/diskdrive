@@ -47,15 +47,18 @@ function normalizeUrlList(job) {
     .map(v => String(v || '').trim())
     .filter((u, i, a) => u && /^https?:|^blob:|^data:/i.test(u) && a.indexOf(u) === i)
 }
-function dlHeaders(job) {
+function isTeraboxHost(url='') {
+  try { const h = new URL(url).hostname.toLowerCase(); return h.includes('terabox') || h.includes('1024tera') || h.includes('teraboxapp') || h.includes('4funbox') || h.includes('mirrobox') || h.includes('nephobox') || h.includes('momerybox') || h.includes('tibibox') } catch { return false }
+}
+function dlHeaders(job, targetUrl='') {
   const h = {
     'Accept': '*/*',
     'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
   }
-  const ref = job.sourceUrl || job.directUrl || job.downloadUrl || job.src || ''
+  const ref = job.sourceUrl || targetUrl || job.directUrl || job.downloadUrl || job.src || ''
   try { const u = new URL(ref); h['Referer'] = u.origin + '/' } catch {}
   const cookie = String(job.teraboxCookie || getTeraboxCookie?.() || '').trim()
-  if (cookie) h['Cookie'] = cookie.includes('ndus=') ? cookie : `ndus=${cookie}`
+  if (cookie && isTeraboxHost(targetUrl || ref)) h['Cookie'] = cookie.includes('ndus=') ? cookie : `ndus=${cookie}`
   return h
 }
 
@@ -136,13 +139,13 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem, getTe
           } catch {}
           try {
             try {
-              const res = await Filesystem.downloadFile({ url: dlUrl, path: dest, directory: destDir.directory, progress: true, headers: dlHeaders(job) })
+              const res = await Filesystem.downloadFile({ url: dlUrl, path: dest, directory: destDir.directory, progress: true, headers: dlHeaders(job, dlUrl) })
               if (job.status === 'cancelled') throw new DOMException('Aborted', 'AbortError')
               if (!res?.path && !res) throw new Error('Download failed')
             } catch (nativeErr) {
               if (job.status === 'cancelled') throw new DOMException('Aborted', 'AbortError')
               // Fallback: patched fetch (CapacitorHttp) -> write file
-              const fres = await fetch(dlUrl, { headers: dlHeaders(job), credentials: 'omit', signal: ctrl.signal })
+              const fres = await fetch(dlUrl, { headers: dlHeaders(job, dlUrl), credentials: 'omit', signal: ctrl.signal })
               if (!fres.ok) throw new Error(`HTTP ${fres.status}`)
               const blob = await fres.blob()
               if (!blob?.size) throw nativeErr
@@ -208,7 +211,7 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem, getTe
         }
       } else {
         const doWeb = async (dlUrl) => {
-          const res = await fetch(dlUrl, { signal: ctrl.signal, headers: dlHeaders(job), credentials: 'omit' })
+          const res = await fetch(dlUrl, { signal: ctrl.signal, headers: dlHeaders(job, dlUrl), credentials: 'omit' })
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
           const total = Number(res.headers.get('content-length') || 0)
           if (res.body && total) {

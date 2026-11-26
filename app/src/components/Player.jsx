@@ -1,8 +1,45 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
+import { Directory, Filesystem } from '@capacitor/filesystem'
 import { fmtTime } from '../lib/store.js'
 
 import { resolveTeraboxLink } from '../lib/terabox.js'
+
+const isLocalMediaSrc = (src='') => /^(capacitor:|file:|blob:|data:|content:)|\/_capacitor_file_\//i.test(String(src || ''))
+const PLAYCACHE_DIR = 'playcache'
+const MAX_CACHE_FILES = 6
+
+async function cleanupPlayCache(currentPath='') {
+  try {
+    if (!Capacitor.isNativePlatform()) return
+    const res = await Filesystem.readdir({ path: PLAYCACHE_DIR, directory: Directory.Cache })
+    const files = (res?.files || []).map(f => typeof f === 'string' ? { name: f } : f).filter(f => f?.name)
+    if (files.length <= MAX_CACHE_FILES) return
+    const withStat = []
+    for (const f of files) {
+      const full = `${PLAYCACHE_DIR}/${f.name}`
+      if (currentPath && full === currentPath) continue
+      try {
+        const st = await Filesystem.stat({ path: full, directory: Directory.Cache })
+        withStat.push({ full, mtime: Number(st?.mtime || 0), size: Number(st?.size || 0) })
+      } catch {}
+    }
+    withStat.sort((a,b) => a.mtime - b.mtime)
+    const toDelete = withStat.slice(0, Math.max(0, withStat.length - (MAX_CACHE_FILES - 1)))
+    for (const f of toDelete) {
+      try { await Filesystem.deleteFile({ path: f.full, directory: Directory.Cache }) } catch {}
+    }
+  } catch {}
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onerror = () => reject(new Error('read failed'))
+    r.onload = () => { const s = String(r.result || ''); resolve(s.includes(',') ? s.split(',')[1] : s) }
+    r.readAsDataURL(blob)
+  })
+}
 
 export default function Player({ item, queue=[], onClose, onProgress, onSelect, showToast, enqueueDownload, cancelDownload, downloadJobs=[], teraboxCookie='', downloadDir='Download' }) {
   const wrapRef = useRef(null)
@@ -23,121 +60,163 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
   const [loading, setLoading] = useState(true)
   const [useFallback, setUseFallback] = useState(false)
   const resolveAttempts = useRef(0)
+  const activeRunRef = useRef(0)
+  const itemRef = useRef(item)
+  itemRef.current = item
   const [showQueue, setShowQueue] = useState(false)
   const [zoom, setZoom] = useState('contain') // contain|cover|fill
   const [fsMode, setFsMode] = useState('auto') // auto|landscape|portrait
   const [quality, setQuality] = useState('auto')
   const [pipMsg, setPipMsg] = useState('')
   const [showInfo, setShowInfo] = useState(false)
+  const [resolving, setResolving] = useState(false)
   const touchY = useRef(null)
   const seekingRef = useRef(false)
   const idx = Math.max(0, queue.findIndex(q => q.id===item.id || (q.src && q.src===item.src)))
   const activeJob = (downloadJobs||[]).find(j => ['queued','downloading','resolving'].includes(j.status) && (j.sourceUrl===item.sourceUrl || j.src===item.src || j.itemId===item.id))
 
-  useEffect(() => { setUseFallback(false); resolveAttempts.current = 0 }, [item?.id, item?.sourceUrl])
+  useEffect(() => { setUseFallback(false); resolveAttempts.current = 0; setResolving(false) }, [item?.id, item?.sourceUrl])
 
   useEffect(() => {
+    const runId = ++activeRunRef.current
+    const stale = () => runId !== activeRunRef.current
     const v = videoRef.current; if (!v) return
     setErr(''); setLoading(true); setPlaying(false); setCurrentTime(0); setDuration(0); setBuffered(0)
     const chosen = item.srcLocal || ((!useFallback && (item.directUrl || item.src)) ? (item.directUrl || item.src) : (item.src || item.directUrl))
+    if (!chosen) { setLoading(false); setErr('No playable source for this item.'); return }
     v.src = chosen
     v.load()
-    const onLoaded = () => { setDuration(v.duration||0); setLoading(false); if (item.position && item.position < (v.duration||99999)-3) v.currentTime = item.position; v.play().then(()=>setPlaying(true)).catch(()=>{}) }
-    const onTime = () => { setCurrentTime(v.currentTime||0); onProgress?.(item.src, v.currentTime||0, v.duration||0); if (v.buffered?.length) { const end=v.buffered.end(v.buffered.length-1); setBuffered(v.duration? (end/v.duration)*100:0) } }
-    const onPlay = () => setPlaying(true)
-    const onPause = () => setPlaying(false)
-    const onWait = () => setLoading(true)
-    const onStalled = () => setLoading(true)
-    const onCan = () => setLoading(false)
-    const onEnd = () => { setPlaying(false); if (queue[idx+1]) onSelect(queue[idx+1]) }
+    const onLoaded = () => { if (stale()) return; setDuration(v.duration||0); setLoading(false); if (item.position && item.position < (v.duration||99999)-3) v.currentTime = item.position; v.play().then(()=>{ if (!stale()) setPlaying(true) }).catch(()=>{}) }
+    const onTime = () => { if (stale()) return; setCurrentTime(v.currentTime||0); onProgress?.(item.srcLocal || item.src, v.currentTime||0, v.duration||0); if (v.buffered?.length) { const end=v.buffered.end(v.buffered.length-1); setBuffered(v.duration? (end/v.duration)*100:0) } }
+    const onPlay = () => { if (!stale()) setPlaying(true) }
+    const onPause = () => { if (!stale()) setPlaying(false) }
+    const onWait = () => { if (!stale()) setLoading(true) }
+    const onStalled = () => { if (!stale()) setLoading(true) }
+    const onCan = () => { if (!stale()) setLoading(false) }
+    const onEnd = () => { if (stale()) return; setPlaying(false); if (queue[idx+1]) onSelect(queue[idx+1]) }
+
+    const tryDownloadToCache = async (currentItem) => {
+      const candidates = [currentItem.directUrl, currentItem.downloadUrl, currentItem.src, currentItem.proxyDownloadUrl, currentItem.proxyStreamUrl]
+        .map(v => String(v || '').trim()).filter((u, i, a) => u && /^https?:/i.test(u) && a.indexOf(u) === i)
+      if (!candidates.length) throw new Error('No direct download URL available')
+      const ext = String(currentItem.name || currentItem.title || 'video.mp4').split('.').pop()?.replace(/[^a-z0-9]/ig,'') || 'mp4'
+      const path = `${PLAYCACHE_DIR}/${(currentItem.id || 'vid').replace(/[^a-zA-Z0-9_-]/g,'')}.${ext}`
+      try { await Filesystem.mkdir({ path: PLAYCACHE_DIR, directory: Directory.Cache, recursive: true }) } catch {}
+      const baseHeaders = {
+        'Accept': '*/*',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+      }
+      try { const u = new URL(currentItem.sourceUrl || candidates[0] || ''); baseHeaders['Referer'] = u.origin + '/' } catch {}
+      const cookie = String(teraboxCookie || '').trim()
+      const withCookie = (srcUrl) => {
+        const h = { ...baseHeaders }
+        try { const host = new URL(srcUrl).hostname.toLowerCase(); if (cookie && /terabox|1024tera|4funbox|mirrobox|nephobox|momerybox|tibibox/.test(host)) h['Cookie'] = cookie.includes('ndus=') ? cookie : `ndus=${cookie}` } catch {}
+        return h
+      }
+
+      let lastErr
+      for (let i = 0; i < candidates.length; i++) {
+        if (stale()) throw new Error('cancelled')
+        const srcUrl = candidates[i]
+        try {
+          if (!stale()) setErr(`Downloading local playback cache… (${i + 1}/${candidates.length})`)
+          try {
+            await Filesystem.downloadFile({ url: srcUrl, path, directory: Directory.Cache, headers: baseHeaders, progress: false })
+          } catch (nativeErr) {
+            if (stale()) throw new Error('cancelled')
+            const fres = await fetch(srcUrl, { headers: withCookie(srcUrl), credentials: 'omit' })
+            if (!fres.ok) throw new Error(`HTTP ${fres.status} from Terabox CDN`)
+            const blob = await fres.blob()
+            if (!blob?.size) throw nativeErr
+            const b64 = await blobToBase64(blob)
+            if (stale()) throw new Error('cancelled')
+            await Filesystem.writeFile({ path, directory: Directory.Cache, data: b64, recursive: true })
+          }
+          const stat = await Filesystem.stat({ path, directory: Directory.Cache }).catch(() => null)
+          if (!stat?.size) throw new Error('Downloaded file is empty')
+          const uri = await Filesystem.getUri({ path, directory: Directory.Cache })
+          const local = Capacitor.convertFileSrc(uri.uri)
+          cleanupPlayCache(path)
+          return local
+        } catch (e) {
+          lastErr = e
+          try { await Filesystem.deleteFile({ path, directory: Directory.Cache }) } catch {}
+        }
+      }
+      throw lastErr || new Error('Download failed')
+    }
+
     const onErr = async () => {
+      if (stale()) return
       setLoading(false)
-      const canFallback = !useFallback && item.src && item.directUrl && item.src !== item.directUrl
+      const currentItem = itemRef.current || item
+      const currentChosen = currentItem.srcLocal || ((!useFallback && (currentItem.directUrl || currentItem.src)) ? (currentItem.directUrl || currentItem.src) : (currentItem.src || currentItem.directUrl))
+      const canFallback = !useFallback && currentItem.src && currentItem.directUrl && currentItem.src !== currentItem.directUrl
       if (canFallback) { setErr('Trying alternate stream source…'); setUseFallback(true); return }
-      const isLocalSrc = String(item.src||'').startsWith('capacitor:') || String(item.src||'').startsWith('file:') || String(item.src||'').startsWith('blob:')
-      if (!isLocalSrc && item.sourceUrl && teraboxCookie && resolveAttempts.current < 2) {
+
+      const localLike = isLocalMediaSrc(currentChosen)
+      if (!localLike && currentItem.sourceUrl && teraboxCookie && resolveAttempts.current < 2) {
         resolveAttempts.current += 1
         try {
           setErr('Re-resolving link on device…')
           setLoading(true)
-          const fresh = await resolveTeraboxLink(item.sourceUrl, { teraboxCookie })
+          const fresh = await resolveTeraboxLink(currentItem.sourceUrl, { teraboxCookie })
+          if (stale()) return
           setLoading(false)
-          const next = { ...item, ...fresh }
-          if ((next.src || next.directUrl) && (next.src !== item.src || next.directUrl !== item.directUrl)) {
+          const next = { ...currentItem, ...fresh }
+          if ((next.src || next.directUrl) && (next.src !== currentItem.src || next.directUrl !== currentItem.directUrl || next.srcLocal !== currentItem.srcLocal)) {
             onSelect(next)
             return
           }
-          setErr('Resolved, but playback URL did not change. Try Download or Open link.')
-          return
         } catch (e) {
+          if (stale()) return
           setLoading(false)
           const msg = String(e?.message || e)
-          const isAuth = /cookie\/auth failed|login required|ndus expired|errno=(-6|-1|4|5|112|910000001)/i.test(msg)
-          setErr(isAuth ? 'Terabox NDUS/cookie invalid or expired. Update it in Settings.' : msg.slice(0, 220))
-          return
+          const isAuth = /cookie\/auth failed|login required|ndus expired|errno=(-6|-1|4|5|112|910000001)\b/i.test(msg)
+          if (isAuth) { setErr('Terabox NDUS/cookie invalid or expired. Update it in Settings.'); return }
         }
       }
-      // Native fallback: download to app cache and play local file (avoids CORS/header/media issues)
-      if (Capacitor?.isNativePlatform?.() && (item.directUrl || item.src || item.downloadUrl)) {
+
+      if (Capacitor?.isNativePlatform?.() && !isLocalMediaSrc(currentItem.srcLocal) && (currentItem.directUrl || currentItem.src || currentItem.downloadUrl || currentItem.sourceUrl)) {
         try {
           setErr('Direct stream failed. Downloading local playback cache…')
           setLoading(true)
-          const { Filesystem, Directory } = await import('@capacitor/filesystem')
-          const { Capacitor } = await import('@capacitor/core')
-          const candidates = [item.directUrl, item.downloadUrl, item.src, item.proxyDownloadUrl, item.proxyStreamUrl]
-            .map(v => String(v || '').trim()).filter((u, i, a) => u && /^https?:/i.test(u) && a.indexOf(u) === i)
-          const ext = String(item.name || item.title || 'video.mp4').split('.').pop()?.replace(/[^a-z0-9]/ig,'') || 'mp4'
-          const path = `playcache/${(item.id || 'vid').replace(/[^a-zA-Z0-9_-]/g,'')}.${ext}`
-          try { await Filesystem.mkdir({ path: 'playcache', directory: Directory.Cache, recursive: true }) } catch {}
-          const baseHeaders = {
-            'Accept': '*/*',
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
-          }
-          try { const u = new URL(item.sourceUrl || candidates[0] || ''); baseHeaders['Referer'] = u.origin + '/' } catch {}
-          const cookie = String(teraboxCookie || '').trim()
-          if (cookie) baseHeaders['Cookie'] = cookie.includes('ndus=') ? cookie : `ndus=${cookie}`
-          let lastErr
-          let ok = false
-          for (const srcUrl of candidates) {
+          let local = null
+          let lastErr = null
+          try { local = await tryDownloadToCache(currentItem) } catch (e) { lastErr = e }
+          if (!local && currentItem.sourceUrl && teraboxCookie && resolveAttempts.current < 3) {
+            resolveAttempts.current += 1
             try {
-              try {
-                await Filesystem.downloadFile({ url: srcUrl, path, directory: Directory.Cache, headers: baseHeaders, progress: false })
-              } catch (nativeErr) {
-                // Fallback through patched fetch/CapacitorHttp then write base64
-                const fres = await fetch(srcUrl, { headers: baseHeaders, credentials: 'omit' })
-                if (!fres.ok) throw new Error(`HTTP ${fres.status}`)
-                const blob = await fres.blob()
-                if (!blob?.size) throw nativeErr
-                const b64 = await new Promise((resolve, reject) => {
-                  const r = new FileReader(); r.onerror = () => reject(new Error('read failed'))
-                  r.onload = () => { const s = String(r.result || ''); resolve(s.includes(',') ? s.split(',')[1] : s) }
-                  r.readAsDataURL(blob)
-                })
-                await Filesystem.writeFile({ path, directory: Directory.Cache, data: b64, recursive: true })
-              }
-              const stat = await Filesystem.stat({ path, directory: Directory.Cache }).catch(() => null)
-              if (!stat?.size) throw new Error('Downloaded file is empty')
-              ok = true
-              break
+              setErr('Refreshing Terabox link and retrying…')
+              const fresh = await resolveTeraboxLink(currentItem.sourceUrl, { teraboxCookie })
+              if (stale()) return
+              const next = { ...currentItem, ...fresh }
+              local = await tryDownloadToCache(next)
+              if (local) { setLoading(false); setErr(''); onSelect({ ...next, srcLocal: local, src: local }); return }
             } catch (e) { lastErr = e }
           }
-          if (!ok) throw lastErr || new Error('Download failed')
-          const uri = await Filesystem.getUri({ path, directory: Directory.Cache })
-          const local = Capacitor.convertFileSrc(uri.uri)
-          setLoading(false)
-          setErr('')
-          onSelect({ ...item, srcLocal: local, src: local })
-          return
+          if (stale()) return
+          if (local) {
+            setLoading(false)
+            setErr('')
+            onSelect({ ...currentItem, srcLocal: local, src: local })
+            return
+          }
+          throw lastErr || new Error('Could not download playback cache')
         } catch (e) {
+          if (stale()) return
           setLoading(false)
           const msg = String(e?.message || e)
-          setErr(`Cannot play/download stream. ${msg.slice(0,180)}`)
+          const isAuth = /cookie\/auth failed|login required|ndus expired|errno=(-6|-1|4|5|112|910000001)\b/i.test(msg)
+          setErr(isAuth ? 'Terabox NDUS/cookie invalid or expired. Update it in Settings.' : `Cannot play/download stream. ${msg.slice(0,180)}`)
           return
         }
       }
+      if (stale()) return
       setLoading(false)
-      setErr(item.sourceUrl ? 'Cannot play this video. Try Download/Open link, or re-resolve after updating NDUS.' : 'Cannot play this video file.')
+      setErr(currentItem.sourceUrl ? 'Cannot play this video. Try Download/Open link, or re-resolve after updating NDUS.' : 'Cannot play this video file.')
     }
+
     v.addEventListener('loadedmetadata', onLoaded)
     v.addEventListener('timeupdate', onTime)
     v.addEventListener('play', onPlay)
@@ -149,11 +228,11 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
     v.addEventListener('ended', onEnd)
     v.addEventListener('error', onErr)
     return () => { v.pause(); v.removeEventListener('loadedmetadata', onLoaded); v.removeEventListener('timeupdate', onTime); v.removeEventListener('play', onPlay); v.removeEventListener('pause', onPause); v.removeEventListener('waiting', onWait); v.removeEventListener('stalled', onStalled); v.removeEventListener('canplay', onCan); v.removeEventListener('canplaythrough', onCan); v.removeEventListener('ended', onEnd); v.removeEventListener('error', onErr) }
-  }, [item?.src, item?.directUrl, item?.sourceUrl, useFallback, teraboxCookie])
+  }, [item?.id, item?.src, item?.srcLocal, item?.directUrl, item?.downloadUrl, item?.sourceUrl, useFallback, teraboxCookie])
 
   useEffect(() => { const v=videoRef.current; if(v) v.playbackRate = hold2x ? 2 : speed }, [speed, hold2x])
   useEffect(() => { const onFs=()=> setFs(!!document.fullscreenElement); document.addEventListener('fullscreenchange', onFs); return ()=>document.removeEventListener('fullscreenchange', onFs) }, [])
-  useEffect(() => () => { clearTimeout(hideTimer.current); clearTimeout(holdTimer.current) }, [])
+  useEffect(() => () => { activeRunRef.current += 1; clearTimeout(hideTimer.current); clearTimeout(holdTimer.current) }, [])
 
   const poke = (force=false) => { setShow(true); clearTimeout(hideTimer.current); hideTimer.current = setTimeout(()=>{ if(!force) setShow(false) }, 2600) }
   const togglePlay = () => { const v=videoRef.current; if(!v) return; if(v.paused) v.play().catch(()=>{}); else v.pause(); poke() }
@@ -252,8 +331,8 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
           <div>{err}</div>
           <div className="row" style={{marginTop:8}}>
             {(item.directUrl || item.src) && <button className="btn ghost" onClick={()=>window.open(item.directUrl || item.src, '_blank', 'noopener,noreferrer')}>Open link</button>}
-            {activeJob ? <button className="btn ghost" onClick={()=>cancelDownload?.(activeJob.id)}>Cancel {activeJob.progress||0}%</button> : <button className="btn ghost" onClick={()=>{ if (item?.nativePath || item?.stored==='app-private' || item?.stored==='native-external') { import('../lib/export.js').then(m=>m.saveToPhone(item, downloadDir)).then(()=>showToast?.('Saved to device')).catch(()=>showToast?.('Save failed')); return } if(enqueueDownload) enqueueDownload({ ...item, src: item.directUrl || item.src, directUrl: item.directUrl || item.src, downloadUrl: item.directUrl || item.downloadUrl || item.src }); else window.open(item.directUrl || item.downloadUrl || item.src, '_blank') }}>{(item?.nativePath||item?.stored==='app-private'||item?.stored==='native-external')?'Save to phone':'Download'}</button>}
-            {item.sourceUrl && <button className="btn ghost" onClick={async()=>{ try{ if(!teraboxCookie){ setErr('Add Terabox NDUS in Settings first.'); return } setLoading(true); setErr('Re-resolving...'); const fresh=await resolveTeraboxLink(item.sourceUrl,{teraboxCookie}); setLoading(false); if(fresh?.src||fresh?.directUrl) onSelect({...item,...fresh}); else setErr('Resolve returned no playable link.'); }catch(e){ setLoading(false); const msg=String(e?.message||e); const isAuth=/cookie\/auth failed|login required|ndus expired|errno=(-6|-1|4|5|112|910000001)\b/i.test(msg); setErr(isAuth?'Terabox NDUS/cookie invalid or expired. Update it in Settings.':msg.slice(0,220)) } }}>Re-resolve</button>}
+            {activeJob ? <button className="btn ghost" onClick={()=>cancelDownload?.(activeJob.id)}>Cancel {activeJob.progress||0}%</button> : <button className="btn ghost" onClick={()=>{ if (item?.nativePath || item?.stored==='app-private' || item?.stored==='native-external') { import('../lib/export.js').then(m=>m.saveToPhone(item, downloadDir)).then(()=>showToast?.('Saved to device')).catch(()=>showToast?.('Save failed')); return } if(enqueueDownload) enqueueDownload(item); else window.open(item.downloadUrl||item.directUrl||item.src,'_blank') }}>{(item?.nativePath||item?.stored==='app-private'||item?.stored==='native-external')?'Save to phone':'Download'}</button>}
+            {item.sourceUrl && <button className="btn ghost" disabled={resolving} onClick={async()=>{ try{ if(!teraboxCookie){ setErr('Add Terabox NDUS in Settings first.'); return } setResolving(true); setLoading(true); setErr('Re-resolving...'); const fresh=await resolveTeraboxLink(item.sourceUrl,{teraboxCookie}); if(fresh?.src||fresh?.directUrl) { onSelect({...item,...fresh}); } else setErr('Resolve returned no playable link.'); }catch(e){ const msg=String(e?.message||e); const isAuth=/cookie\/auth failed|login required|ndus expired|errno=(-6|-1|4|5|112|910000001)\b/i.test(msg); setErr(isAuth?'Terabox NDUS/cookie invalid or expired. Update it in Settings.':msg.slice(0,220)) } finally { setLoading(false); setResolving(false) } }}> {resolving?'Resolving…':'Re-resolve'}</button>}
           </div>
         </div>}
         {pipMsg && <div style={{marginBottom:10,fontSize:13}}>{pipMsg}</div>}
@@ -271,8 +350,8 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
             <select className="input" style={{width:88,padding:'8px 10px'}} value={speed} onChange={e=>setSpeed(Number(e.target.value))}>
               {[0.5,0.75,1,1.25,1.5,2].map(s=><option key={s} value={s}>{s}x</option>)}
             </select>
-            <select className="input" style={{width:92,padding:'8px 10px'}} value={quality} onChange={e=>{ setQuality(e.target.value); (showToast?showToast('Quality switching depends on source; Auto used'):null) }}>
-              {['auto','1080p','720p','480p','360p'].map(q=><option key={q} value={q}>{q}</option>)}
+            <select className="input" style={{width:92,padding:'8px 10px'}} value={quality} onChange={e=>{ setQuality(e.target.value); showToast?.('Quality selection unavailable for this source; using available stream') }}>
+              {['auto'].map(q=><option key={q} value={q}>{q}</option>)}
             </select>
             <select className="input" style={{width:92,padding:'8px 10px'}} value={zoom} onChange={e=>setZoom(e.target.value)}>
               <option value="contain">Fit</option><option value="cover">Zoom</option><option value="fill">Stretch</option>
