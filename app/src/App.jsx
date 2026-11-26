@@ -30,11 +30,14 @@ const TABS = [
 ]
 
 export default function App() {
+  const [homeMode, setHomeMode] = useState('normal')
+  const [modeAnim, setModeAnim] = useState(null) // {to:'diskwala'|'normal', phase:'cover'|'reveal'}
   const [ready, setReady] = useState(false)
   const [bootMsg, setBootMsg] = useState('Loading…')
   const [tab, setTab] = useState('home')
   const [toast, setToast] = useState('')
   const [state, setState] = useState({ adminUnlocked:false, adminHash:null, pinHash:null, pinEnabled:false, lockDelay:15, history:[], playlists:[{id:"watch-later",name:"WATCH LATER",builtIn:true,items:[],updatedAt:Date.now()},{id:"favourites",name:"FAVOURITES",builtIn:true,items:[],updatedAt:Date.now()}], downloads:[], settings:{lockDelaySec:15,pinEnabled:false,lastSaveDir:null,downloadDir:"Download",downloadStorage:"inapp",serverUrl:"",serverLocked:false,teraboxCookie:"",teraboxLocked:false,teraboxResolverMode:"device",teraboxLog:[],updateLog:[]} })
+  const animTimer = useRef(null)
   const [adminInput, setAdminInput] = useState('')
   const [adminErr, setAdminErr] = useState('')
   const [adminAttempts, setAdminAttempts] = useState(0)
@@ -164,6 +167,18 @@ export default function App() {
   }
   const showToast = (msg) => setToast(msg)
 
+  const triggerHomeMode = (next) => {
+    if (next === homeMode && !modeAnim) return
+    clearTimeout(animTimer.current)
+    setModeAnim({ to: next, phase: 'cover' })
+    animTimer.current = setTimeout(() => {
+      setHomeMode(next)
+      setModeAnim({ to: next, phase: 'reveal' })
+      animTimer.current = setTimeout(() => setModeAnim(null), 560)
+    }, 560)
+  }
+  useEffect(() => () => clearTimeout(animTimer.current), [])
+
   useEffect(() => {
     if (!ready || !state) return
     window.__diskdriveFirstScreen = true
@@ -284,13 +299,18 @@ export default function App() {
     } catch (e) { setPinErr('Could not verify PIN'); setPinInput('') }
   }} />
 
-  return <div className="app" style={{background:'#000',color:'#fff',minHeight:'100vh'}}>
+  const isDiskwala = tab === 'home' && homeMode === 'diskwala'
+  return <div className={`app ${isDiskwala ? 'theme-diskwala' : 'theme-normal'}`} style={{minHeight:'100vh'}}>
+    {modeAnim && <div className={`mode-wipe ${modeAnim.to === 'diskwala' ? 'to-diskwala' : 'to-normal'} ${modeAnim.phase}`} aria-hidden="true"><div className="mode-wipe-curve" /></div>}
     <div className="topbar">
       <div className="brand"><img src="./icon.png" alt="DiskDrive" onError={(e)=>{e.currentTarget.style.display='none'}}/><div><div className="name">DISKDRIVE</div></div></div>
-      <div className="ver">DISKDRIVE V1</div>
+      <div className="topbar-right">
+        {isDiskwala && <div className="diskwala-badge"><img src="./diskwala-icon.png" alt="DiskWala" onError={(e)=>{e.currentTarget.style.display='none'}}/><span>DiskWala</span></div>}
+        <div className="ver">DISKDRIVE V1</div>
+      </div>
     </div>
 
-    {tab==='home' && <Home state={state} save={save} showToast={showToast} openPlayer={openPlayer} setTab={setTab} addDownload={addDownload} enqueueDownload={enqueueDownload} cancelDownload={cancelDownload} downloadJobs={downloadJobs} resolveState={resolveState} setResolveState={setResolveState} />}
+    {tab==='home' && <Home state={state} save={save} showToast={showToast} openPlayer={openPlayer} setTab={setTab} addDownload={addDownload} enqueueDownload={enqueueDownload} cancelDownload={cancelDownload} downloadJobs={downloadJobs} resolveState={resolveState} setResolveState={setResolveState} homeMode={homeMode} onHomeModeChange={triggerHomeMode} />}
     {tab==='download' && <Downloads state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} downloadJobs={downloadJobs} enqueueDownload={enqueueDownload} cancelDownload={cancelDownload} removeDownloadJob={removeDownloadJob} clearDoneDownloads={clearDoneDownloads} />}
     {tab==='history' && <HistoryScreen state={state} save={save} showToast={showToast} openPlayer={openPlayer} setConfirm={setConfirm} />}
     {tab==='playlist' && <PlaylistScreen state={state} save={save} showToast={showToast} openPlayer={openPlayer} setMenu={setMenu} setConfirm={setConfirm} />}

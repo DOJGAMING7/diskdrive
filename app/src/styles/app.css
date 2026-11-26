@@ -1,4 +1,4 @@
- :root{--bg:#0f0f0f;--fg:#f5f5f5;--muted:#a3a3a3;--line:#262626;--panel:#171717;--panel2:#1f1f1f;--accent:#00a76f;--accent-fg:#07130f;--danger:#ff6b6b}
+ :root{--bg:#000;--fg:#fff;--muted:#b5b5b5;--line:#222;--panel:#0a0a0a;--panel2:#121212;--accent:#fff;--accent-fg:#000;--danger:#ff6b6b}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body,#root{margin:0;min-height:100%;background:var(--bg);color:var(--fg);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
 body{overscroll-behavior:none;background:var(--bg);color:var(--fg)}
@@ -7,6 +7,7 @@ button,input,select,textarea{font:inherit}
 button{cursor:pointer}
 .app{min-height:100vh;padding:env(safe-area-inset-top) 14px calc(86px + env(safe-area-inset-bottom));max-width:1100px;margin:0 auto;background:var(--bg);color:var(--fg)}
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 0 10px;gap:12px}
+.topbar-right{display:flex;align-items:center;gap:8px}
 .brand{display:flex;align-items:center;gap:10px}
 .brand img{width:38px;height:38px;border-radius:12px;object-fit:cover;border:1px solid var(--line)}
 .brand .name{font-size:16px;font-weight:800;letter-spacing:1.8px}
@@ -17,7 +18,7 @@ button{cursor:pointer}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .input,textarea.input{width:100%;background:#101010;color:var(--fg);border:1px solid #303030;border-radius:14px;padding:14px;font-size:15px;outline:none}
 .input:focus,textarea.input:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(0,167,111,.18)}
-.btn{appearance:none;border:1px solid var(--accent);background:var(--accent);color:#07130f;padding:12px 16px;border-radius:14px;font-weight:700}
+.btn{appearance:none;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg,#000);padding:12px 16px;border-radius:14px;font-weight:700}
 .btn.ghost{background:transparent;color:var(--fg);border-color:#333}
 .btn.block{width:100%}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
@@ -58,3 +59,46 @@ button{cursor:pointer}
 .section-title{font-size:13px;color:#d4d4d4;font-weight:700;margin:14px 0 8px;letter-spacing:.4px;text-transform:uppercase}
 .progress{height:8px;background:#1a1a1a;border:1px solid #303030;border-radius:999px;overflow:hidden;margin-top:8px}
 .progress .bar{height:100%;background:var(--accent);width:0%}
+
+/* Home mode themes */
+.app.theme-normal{--bg:#000;--fg:#fff;--muted:#b5b5b5;--line:#222;--panel:#0a0a0a;--panel2:#121212;--accent:#fff;--accent-fg:#000;--danger:#ff6b6b;background:#000;color:#fff}
+.app.theme-normal .btn{border-color:#fff;background:#fff;color:#000}
+.app.theme-normal .btn.ghost{background:transparent;color:#fff;border-color:#2a2a2a}
+.app.theme-normal .chip.active{background:#fff;color:#000;border-color:#fff}
+.app.theme-normal .navbtn.active{background:#fff;color:#000;border-color:#fff}
+.app.theme-normal .progress .bar{background:#fff}
+.app.theme-normal .pin-dots span.on{background:#fff;border-color:#fff}
+.app.theme-normal .input:focus,.app.theme-normal textarea.input:focus{border-color:#fff;box-shadow:none}
+
+.app.theme-diskwala{--bg:#0f0f0f;--fg:#f5f5f5;--muted:#a3a3a3;--line:#262626;--panel:#171717;--panel2:#1f1f1f;--accent:#00a76f;--accent-fg:#07130f;--danger:#ff6b6b;background:#0f0f0f;color:#f5f5f5}
+
+.topbar-right{display:flex;align-items:center;gap:8px}
+.diskwala-badge{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:999px;border:1px solid rgba(0,167,111,.35);background:rgba(0,167,111,.08);color:#f5f5f5;font-size:11px;font-weight:700}
+.diskwala-badge img{width:18px;height:18px;border-radius:5px;object-fit:cover}
+
+/* DiskWala home */
+.diskwala-home .dw-hero{background:#171717;border:1px solid #262626;padding:22px}
+.dw-hero-inner{max-width:720px;margin:0 auto;text-align:center}
+.dw-title{display:flex;flex-direction:column;gap:4px;margin:8px 0 10px;font-size:34px;line-height:1.08;letter-spacing:-.8px}
+.dw-sub{margin:0 0 18px;color:#00a76f;font-size:12px;font-weight:800;letter-spacing:2px}
+.dw-input-wrap{max-width:680px;margin:0 auto}
+.dw-input{background:#111;border:1px solid #303030;border-radius:14px;height:52px}
+.dw-input::placeholder{color:#8b8b8b}
+.diskwala-home .btn{background:#00a76f;border-color:#00a76f;color:#07130f}
+.diskwala-home .btn.ghost{background:transparent;color:#f5f5f5;border-color:#333}
+.diskwala-home .section-title{color:#d4d4d4}
+.diskwala-home .card{background:#171717}
+
+/* Curved mode transition */
+.mode-wipe{position:fixed;inset:0;z-index:1200;pointer-events:none;overflow:hidden}
+.mode-wipe::before{content:'';position:absolute;left:-10%;width:120%;top:-30vh;height:160vh;background:#000;transform:translateY(-120%)}
+.mode-wipe.to-diskwala::before{background:#0f0f0f}
+.mode-wipe.to-normal::before{background:#000}
+.mode-wipe-curve{position:absolute;left:-10%;width:120%;height:22vh;top:-22vh;border-radius:0 0 50% 50%/0 0 100% 100%;background:#000;transform:translateY(-120%)}
+.mode-wipe.to-diskwala .mode-wipe-curve{background:#0f0f0f}
+.mode-wipe.to-normal .mode-wipe-curve{background:#000}
+.mode-wipe.cover::before,.mode-wipe.cover .mode-wipe-curve{animation:wipeDown .56s cubic-bezier(.22,.9,.2,1) forwards}
+.mode-wipe.reveal::before,.mode-wipe.reveal .mode-wipe-curve{animation:wipeAway .56s cubic-bezier(.22,.9,.2,1) forwards}
+@keyframes wipeDown{from{transform:translateY(-120%)}to{transform:translateY(0)}}
+@keyframes wipeAway{from{transform:translateY(0)}to{transform:translateY(130%)}}
+@media (prefers-reduced-motion: reduce){.mode-wipe.cover::before,.mode-wipe.cover .mode-wipe-curve,.mode-wipe.reveal::before,.mode-wipe.reveal .mode-wipe-curve{animation-duration:.01ms}}

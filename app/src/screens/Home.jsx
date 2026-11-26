@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useRef } from 'react'
 import { importLocalFile } from '../lib/files.js'
 import { isTeraboxUrl, resolveTeraboxLink } from '../lib/terabox.js'
 import { uid } from '../lib/id.js'
@@ -16,13 +16,17 @@ function guessTitle(text, url) {
   return nonUrl || ''
 }
 
-export default function Home({ state, save, showToast, openPlayer, setTab, addDownload, enqueueDownload, resolveState, setResolveState }) {
+export default function Home({ state, save, showToast, openPlayer, setTab, addDownload, enqueueDownload, resolveState, setResolveState, homeMode='normal', onHomeModeChange }) {
   const provider = resolveState?.provider || 'AUTO'
   const link = resolveState?.link || ''
   const busy = !!resolveState?.busy
   const progress = resolveState?.progress || { active:false, total:0, done:0, current:'', errors:[] }
   const resolvedItems = resolveState?.resolvedItems || []
-  const setProvider = (p) => setResolveState?.(s => ({ ...s, provider: p }))
+  const setProvider = (p) => {
+    setResolveState?.(s => ({ ...s, provider: p }))
+    if (p === 'DISKWALA') onHomeModeChange?.('diskwala')
+    else onHomeModeChange?.('normal')
+  }
   const setLink = (v) => setResolveState?.(s => ({ ...s, link: v }))
   const setBusy = (v) => setResolveState?.(s => ({ ...s, busy: typeof v === 'function' ? v(s.busy) : v }))
   const setProgress = (v) => setResolveState?.(s => ({ ...s, progress: typeof v === 'function' ? v(s.progress) : v }))
@@ -40,10 +44,10 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
 
   const onResolve = async () => {
     const text = link.trim()
-    if (!text) return showToast('Paste a link or pick a local video')
+    if (!text) return showToast(homeMode === 'diskwala' ? 'Please enter a valid DiskWala URL' : 'Paste a link or pick a local video')
     const links = extractLinks(text)
     if (!links.length) {
-      if (/diskwala/i.test(text) || provider === 'DISKWALA') return showToast('Coming soon')
+      if (/diskwala/i.test(text) || provider === 'DISKWALA' || homeMode === 'diskwala') return showToast('Coming soon')
       return showToast('No link found in your message')
     }
 
@@ -52,7 +56,7 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
     const terabox = jobs.filter(j => j.provider === 'TERABOX')
     const unknown = jobs.filter(j => j.provider === 'UNKNOWN')
 
-    if (provider === 'DISKWALA' || (diskwala.length && !terabox.length)) return showToast('DiskWala coming soon')
+    if (provider === 'DISKWALA' || homeMode === 'diskwala' || (diskwala.length && !terabox.length)) return showToast('DiskWala coming soon')
     if (!terabox.length) return showToast('Unsupported link. Terabox works now; DiskWala coming soon.')
 
     resolveCancelRef.current.cancelled = false
@@ -142,32 +146,57 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
   }
 
   const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0
+  const diskwala = homeMode === 'diskwala'
 
-  return <div className="screen">
-    <h1>Play anything. Keep it private.</h1>
-    <p className="lead">Play local videos and Terabox links. DiskWala is coming soon.</p>
-
-    <div className="card">
+  return <div className={`screen home-screen ${diskwala ? 'diskwala-home' : ''}`}>
+    <div className="home-provider-row">
       <div className="chips">
         {['TERABOX', 'DISKWALA', 'AUTO'].map(p => <button key={p} className={`chip ${provider === p ? 'active' : ''}`} onClick={() => setProvider(p)}>{p === 'AUTO' ? 'AUTO DETECT' : p}</button>)}
       </div>
-      <textarea className="input" style={{ minHeight: 96, resize: 'vertical' }} value={link} onChange={e => setLink(e.target.value)} placeholder={'Paste Terabox link(s) or message text.\nExample:\nDhurandhar 2026 Hindi\nhttps://1024terabox.com/s/...'} />
-      <div className="row" style={{ marginTop: 10 }}>
-        <button className="btn" onClick={onResolve} disabled={busy} style={{ minWidth: 120 }}>{busy ? 'Resolving…' : 'Add / Resolve'}</button>
-        <button className="btn ghost" onClick={() => { if (busy) { cancelResolve(); return } setLink(''); setResolvedItems([]); setProgress({ active:false,total:0,done:0,current:'',errors:[] }) }}>{busy ? 'Cancel resolve' : 'Clear'}</button>
-      </div>
-      <div className="small" style={{ marginTop: 10 }}>Supports multiple Terabox links in one message. Terabox resolves on-device using your private NDUS/cookie in Settings. DiskWala coming soon.</div>
-
-      {(busy || progress.total > 0) && <div style={{ marginTop: 14 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
-          <span>{progress.current || 'Ready'}</span><span>{progress.done}/{progress.total}</span>
-        </div>
-        <div style={{ height: 10, background: '#111', border: '1px solid #2a2a2a', borderRadius: 999, overflow: 'hidden' }}>
-          <div style={{ width: `${pct}%`, height: '100%', background: '#fff', transition: 'width .25s ease' }} />
-        </div>
-        {progress.errors?.length > 0 && <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{progress.errors.slice(-3).join('\n')}</div>}
-      </div>}
     </div>
+
+    {diskwala ? (
+      <div className="dw-hero card">
+        <div className="dw-hero-inner">
+          <h1 className="dw-title"><span>Paste a link.</span><span>Access it instantly.</span></h1>
+          <p className="dw-sub">WHY DISKWALA</p>
+          <div className="dw-input-wrap">
+            <input className="input dw-input" value={link} onChange={e => setLink(e.target.value)} placeholder="Paste DiskWala URL" />
+          </div>
+          <div className="row" style={{ marginTop: 12 }}>
+            <button className="btn" onClick={onResolve} disabled={busy}>{busy ? 'Resolving…' : 'Add / Resolve'}</button>
+            <button className="btn ghost" onClick={() => { if (busy) { cancelResolve(); return } setLink(''); setResolvedItems([]); setProgress({ active:false,total:0,done:0,current:'',errors:[] }) }}>{busy ? 'Cancel' : 'Clear'}</button>
+          </div>
+          {(busy || progress.total > 0) && <div style={{ marginTop: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+              <span>{progress.current || 'Ready'}</span><span>{progress.done}/{progress.total}</span>
+            </div>
+            <div className="progress"><div className="bar" style={{ width: `${pct}%` }} /></div>
+            {progress.errors?.length > 0 && <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{progress.errors.slice(-3).join('\n')}</div>}
+          </div>}
+        </div>
+      </div>
+    ) : (
+      <>
+        <h1>Play anything. Keep it private.</h1>
+        <p className="lead">Play local videos and Terabox links. DiskWala is coming soon.</p>
+        <div className="card">
+          <textarea className="input" style={{ minHeight: 96, resize: 'vertical' }} value={link} onChange={e => setLink(e.target.value)} placeholder={'Paste Terabox link(s) or message text.\nExample:\nDhurandhar 2026 Hindi\nhttps://1024terabox.com/s/...'} />
+          <div className="row" style={{ marginTop: 10 }}>
+            <button className="btn" onClick={onResolve} disabled={busy} style={{ minWidth: 120 }}>{busy ? 'Resolving…' : 'Add / Resolve'}</button>
+            <button className="btn ghost" onClick={() => { if (busy) { cancelResolve(); return } setLink(''); setResolvedItems([]); setProgress({ active:false,total:0,done:0,current:'',errors:[] }) }}>{busy ? 'Cancel resolve' : 'Clear'}</button>
+          </div>
+          <div className="small" style={{ marginTop: 10 }}>Supports multiple Terabox links in one message. Terabox resolves on-device using your private NDUS/cookie in Settings. DiskWala coming soon.</div>
+          {(busy || progress.total > 0) && <div style={{ marginTop: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+              <span>{progress.current || 'Ready'}</span><span>{progress.done}/{progress.total}</span>
+            </div>
+            <div className="progress"><div className="bar" style={{ width: `${pct}%` }} /></div>
+            {progress.errors?.length > 0 && <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{progress.errors.slice(-3).join('\n')}</div>}
+          </div>}
+        </div>
+      </>
+    )}
 
     {resolvedItems.length > 0 && <div className="card">
       <div className="section-title">{resolvedItems.length > 1 ? `Playlist ready (${resolvedItems.length})` : 'File ready'}</div>
@@ -192,9 +221,9 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
       </div>
     </div>}
 
-    <div className="card">
-      <div className="section-title">Local video</div>
-      <p className="lead" style={{ marginBottom: 14 }}>Play a video from your device in the DiskDrive player.</p>
+    <div className="card dw-local-card">
+      <div className="section-title">{diskwala ? 'Your downloads' : 'Local video'}</div>
+      <p className="lead" style={{ marginBottom: 14 }}>{diskwala ? 'Play a local video' : 'Play a video from your device in the DiskDrive player.'}</p>
       <input ref={fileRef} type="file" accept="video/*" multiple hidden onChange={onLocal} />
       <div className="row">
         <button className="btn" onClick={() => fileRef.current?.click()}>Play a local video</button>
