@@ -32,6 +32,7 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
 
   const cancelResolve = (silent=false) => {
     resolveCancelRef.current.cancelled = true
+    try { resolveCancelRef.current.controller?.abort(new Error('Cancelled')) } catch {}
     setBusy(false)
     setProgress(p => ({ ...p, active:false, current: 'Cancelled' }))
     if (!silent) showToast('Resolve cancelled')
@@ -55,27 +56,32 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
     if (!terabox.length) return showToast('Unsupported link. Terabox works now; DiskWala coming soon.')
 
     resolveCancelRef.current.cancelled = false
+    resolveCancelRef.current.controller?.abort?.()
+    const ctrl = new AbortController()
+    resolveCancelRef.current.controller = ctrl
     setBusy(true)
     setProgress({ active:true, total: terabox.length, done:0, current: terabox.length===1 ? 'Fetching link…' : `Fetching ${terabox.length} links…`, errors: diskwala.length ? ['DiskWala links skipped (coming soon)'] : [] })
     const resolved = []
     const errors = diskwala.length ? ['DiskWala links skipped (coming soon)'] : []
 
     for (let i = 0; i < terabox.length; i++) {
-      if (resolveCancelRef.current.cancelled) { setBusy(false); return }
+      if (resolveCancelRef.current.cancelled || ctrl.signal.aborted) { setBusy(false); return }
       const job = terabox[i]
       const label = guessTitle(text, job.url) || job.url
       setProgress(p => ({ ...p, done: i, current: terabox.length===1 ? 'Resolving Terabox link…' : `Resolving ${i + 1}/${terabox.length}: ${label.slice(0, 45)}` }))
       try {
         const media = await resolveTeraboxLink(job.url, {
           teraboxCookie: state.settings?.teraboxCookie || '',
+          signal: ctrl.signal,
+          timeoutMs: 25000,
         })
-        if (resolveCancelRef.current.cancelled) { setBusy(false); return }
+        if (resolveCancelRef.current.cancelled || ctrl.signal.aborted) { setBusy(false); return }
         setProgress(p => ({ ...p, current: terabox.length===1 ? 'Loading file info…' : `Loading ${i + 1}/${terabox.length} info…` }))
         const title = media.title || guessTitle(text, job.url) || media.name
         const item = { ...media, id: uid(), title, name: media.name || title, createdAt: Date.now() }
         resolved.push(item)
       } catch (e) {
-        if (resolveCancelRef.current.cancelled) { setBusy(false); return }
+        if (resolveCancelRef.current.cancelled || ctrl.signal.aborted) { setBusy(false); return }
         errors.push(`${job.url.slice(0, 50)}…: ${String(e?.message || e).slice(0, 140)}`)
       }
       setProgress(p => ({ ...p, done: i + 1, current: terabox.length===1 ? 'Done' : `Processed ${i + 1}/${terabox.length}` }))
