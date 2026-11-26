@@ -53,6 +53,19 @@ export function normalizeTeraboxCookie(input='') {
   return cookie
 }
 
+function shareHostsForUrl(url) {
+  let host = 'www.terabox.com'
+  try { host = new URL(String(url).trim()).hostname.toLowerCase() } catch {}
+  const base = host.replace(/^www\./, '')
+  const pref = []
+  const push = (h) => { h = String(h||'').trim().toLowerCase(); if (h && !pref.includes(h)) pref.push(h) }
+  push(host); push(`www.${base}`); push(base)
+  if (base.includes('1024terabox') || base.includes('1024tera')) { push('www.1024tera.com'); push('www.1024terabox.com'); push('1024terabox.com') }
+  if (base.includes('teraboxapp')) { push('www.terabox.app'); push('terabox.app') }
+  ;['www.terabox.com','www.terabox.app','www.1024tera.com','www.1024terabox.com','terabox.com'].forEach(push)
+  return pref.filter(h => /^[a-z0-9.-]+$/.test(h))
+}
+
 function parseSurl(url) {
   const u = new URL(String(url).trim())
   let raw = (u.searchParams.get('surl') || '').trim()
@@ -66,7 +79,8 @@ function parseSurl(url) {
   const candidates = []
   const push = (s) => { s = String(s || '').trim(); if (s && !candidates.includes(s)) candidates.push(s) }
   push(raw); push(clean); push(`1${clean}`)
-  return { surl: clean, candidates, pwd, shareUrl: `https://${u.hostname}/sharing/link?surl=${clean}` }
+  const hosts = shareHostsForUrl(url)
+  return { surl: clean, candidates, pwd, host: hosts[0] || u.hostname, hosts, shareUrl: `https://${hosts[0] || u.hostname}/sharing/link?surl=${clean}` }
 }
 
 function humanSize(size) {
@@ -148,18 +162,23 @@ function parseShareInfo(text='') {
   }
 }
 
-async function getSharePageInfo(shareUrl, cookie, { signal } = {}) {
-  const urls = [...new Set([shareUrl, shareUrl.replace('://1024terabox.com', '://www.terabox.com').replace('://terabox.com', '://www.terabox.com')])]
+async function getSharePageInfo(shareUrl, cookie, hosts=[], { signal } = {}) {
+  const surl = (() => { try { return new URL(shareUrl).searchParams.get('surl') || '' } catch { return '' } })()
+  const urls = []
+  const push = (u) => { if (u && !urls.includes(u)) urls.push(u) }
+  push(shareUrl)
+  for (const h of hosts || []) push(`https://${h}/sharing/link?surl=${surl}`)
   let out = { jsToken:'', sign:'', timestamp:'', shareid:'', uk:'', seckey:'' }
   let lastErr
   for (const u of urls) {
     try {
-      const res = await httpRequest(u, { headers: buildHeaders(cookie, 'https://www.terabox.com/'), redirect: 'follow', timeoutMs: 10000, signal })
+      const host = new URL(u).hostname
+      const res = await httpRequest(u, { headers: buildHeaders(cookie, `https://${host}/`), redirect: 'follow', timeoutMs: 10000, signal })
       out = { ...out, ...Object.fromEntries(Object.entries(parseShareInfo(res.text)).filter(([,v]) => v)) }
       if (out.sign && out.timestamp && out.shareid && out.uk) return out
     } catch (e) { lastErr = e; if (signal?.aborted) throw e }
   }
-  if (lastErr && !out.sign && !out.timestamp) out._err = String(lastErr?.message || lastErr).slice(0,60)
+  if (lastErr && !out.sign && !out.timestamp) out._err = String(lastErr?.message || lastErr).slice(0,80)
   return out
 }
 
@@ -225,57 +244,62 @@ function isCookieError(errno, msg='') {
   return [-6, -1, 4, 5, 112, 910000001].includes(Number(errno)) || m.includes('cookie expired') || m.includes('login required') || m.includes('ndus expired')
 }
 
-async function resolveViaShareApi(url, cookie, { signal } = {}) {
-  const { candidates, pwd, shareUrl } = parseSurl(url)
-  const info = await getSharePageInfo(shareUrl, cookie, { signal }).catch((e) => ({ _err: String(e?.message||e).slice(0,60) }))
+async function resolveViaShareApi(url, cookie, { signal, info: infoArg } = {}) {
+  const { candidates, pwd, shareUrl, hosts } = parseSurl(url)
+  const info = infoArg?.sign ? infoArg : await getSharePageInfo(shareUrl, cookie, hosts, { signal }).catch((e) => ({ _err: String(e?.message||e).slice(0,80) }))
   const errs = []
   let netFails = 0
   if (!info.sign || !info.timestamp) errs.push(`info:sign=${info.sign?'y':'n'} ts=${info.timestamp?'y':'n'}${info._err?':'+info._err:''}`)
+  const tryHosts = [...hosts, 'dm.terabox.app'].filter((h,i,a)=>h && a.indexOf(h)===i).slice(0, 4)
   for (const cand of candidates.slice(0, 2)) {
     if (signal?.aborted) throw new Error('Aborted')
-    try {
-      await verifyShare(cand, pwd, cookie, 'www.terabox.com', { signal })
-      let data = await listShareRaw(cand, info.jsToken, cookie, null, 'www.terabox.com', { signal })
-      let errno = Number(data?.errno)
-      if (errno !== 0) {
-        const alt = await fetchJson(`https://www.terabox.com/share/list?${new URLSearchParams({ app_id:'250528', web:'1', channel:'dubox', clienttype:'0', jsToken:'', shorturl:String(cand).replace(/^1/,''), root:'1', page:'1', num:'1000', by:'name', order:'asc' })}`, { headers: buildHeaders(cookie, `https://www.terabox.com/sharing/link?surl=${String(cand).replace(/^1/, '')}`), timeoutMs: 12000, signal }).catch(()=>null)
-        if (alt && Number(alt.errno) === 0) { data = alt; errno = 0 }
-      }
-      if (errno !== 0) { errs.push(`list:${cand}:errno=${errno}`); if (isCookieError(errno)) throw new Error(`Terabox cookie/auth failed (errno=${errno}). Update NDUS in Settings.`); continue }
-      const files = await collectFiles(cand, info.jsToken, cookie, Array.isArray(data?.list) ? data.list : [], 'www.terabox.com', { signal })
-      const file = files[0]
-      if (!file) { errs.push(`list:${cand}:no-files`); continue }
-
-      if (String(file?.dlink || '').trim()) return mapResult(file, url, 'Resolved via www share/list')
-
-      for (const host of ['www.terabox.com', 'dm.terabox.app']) {
-        try {
-          const dl = await getSharedDownload(file, info, cookie, host, cand, { signal })
-          if (dl?.dlink) return mapResult(dl, url, `Resolved via ${host}/api/sharedownload`)
-          if (dl?.errno && dl.errno !== 0) { errs.push(`sharedownload:${host}:errno=${dl.errno}`); if (isCookieError(dl.errno)) throw new Error(`Terabox cookie/auth failed (errno=${dl.errno}). Update NDUS in Settings.`) }
-          else if (dl?.nodlink) errs.push(`sharedownload:${host}:no-dlink`)
-        } catch (e) {
-          if (isCookieError(0, e?.message)) throw e
-          if (isNetworkError(e)) { netFails++; errs.push(`sharedownload:${host}:${String(e?.message || e).slice(0, 60)}`); if (netFails >= 2) throw new Error(errs.join('; ')); continue }
-          errs.push(`sharedownload:${host}:${String(e?.message || e).slice(0, 60)}`)
+    for (const host of tryHosts) {
+      if (signal?.aborted) throw new Error('Aborted')
+      try {
+        await verifyShare(cand, pwd, cookie, host, { signal })
+        let data = await listShareRaw(cand, info.jsToken, cookie, null, host, { signal })
+        let errno = Number(data?.errno)
+        if (errno !== 0 && host.includes('terabox.com')) {
+          const alt = await fetchJson(`https://${host}/share/list?${new URLSearchParams({ app_id:'250528', web:'1', channel:'dubox', clienttype:'0', jsToken:'', shorturl:String(cand).replace(/^1/,''), root:'1', page:'1', num:'1000', by:'name', order:'asc' })}`, { headers: buildHeaders(cookie, `https://${host}/sharing/link?surl=${String(cand).replace(/^1/, '')}`), timeoutMs: 12000, signal }).catch(()=>null)
+          if (alt && Number(alt.errno) === 0) { data = alt; errno = 0 }
         }
-      }
+        if (errno !== 0) { errs.push(`list:${host}:${cand}:errno=${errno}`); if (isCookieError(errno)) throw new Error(`Terabox cookie/auth failed (errno=${errno}). Update NDUS in Settings.`); continue }
+        const files = await collectFiles(cand, info.jsToken, cookie, Array.isArray(data?.list) ? data.list : [], host, { signal })
+        const file = files[0]
+        if (!file) { errs.push(`list:${host}:${cand}:no-files`); continue }
 
-      return mapResult(file, url, 'metadata:no-dlink')
-    } catch (e) {
-      if (isCookieError(0, e?.message)) throw e
-      if (isNetworkError(e)) { netFails++; errs.push(`${cand}:${String(e?.message || e).slice(0, 80)}`); if (netFails >= 2) throw new Error(errs.join('; ') || 'Network error'); continue }
-      errs.push(`${cand}:${String(e?.message || e).slice(0, 80)}`)
+        if (String(file?.dlink || '').trim()) return mapResult(file, url, `Resolved via ${host}/share/list`)
+
+        for (const dlHost of [...new Set([host, 'dm.terabox.app', 'www.terabox.com'])].slice(0, 3)) {
+          try {
+            const dl = await getSharedDownload(file, info, cookie, dlHost, cand, { signal })
+            if (dl?.dlink) return mapResult(dl, url, `Resolved via ${dlHost}/api/sharedownload`)
+            if (dl?.errno && dl.errno !== 0) { errs.push(`sharedownload:${dlHost}:errno=${dl.errno}`); if (isCookieError(dl.errno)) throw new Error(`Terabox cookie/auth failed (errno=${dl.errno}). Update NDUS in Settings.`) }
+            else if (dl?.nodlink) errs.push(`sharedownload:${dlHost}:no-dlink`)
+          } catch (e) {
+            if (isCookieError(0, e?.message)) throw e
+            if (isNetworkError(e)) { netFails++; errs.push(`sharedownload:${dlHost}:${String(e?.message || e).slice(0, 60)}`); continue }
+            errs.push(`sharedownload:${dlHost}:${String(e?.message || e).slice(0, 60)}`)
+          }
+        }
+
+        return mapResult(file, url, 'metadata:no-dlink')
+      } catch (e) {
+        if (isCookieError(0, e?.message)) throw e
+        if (isNetworkError(e)) { netFails++; errs.push(`${host}:${String(e?.message || e).slice(0, 80)}`); continue }
+        errs.push(`${host}:${cand}:${String(e?.message || e).slice(0, 80)}`)
+      }
     }
+    if (netFails >= 4) break
   }
   throw new Error(errs.join('; ') || 'share api failed')
 }
 
 async function resolveViaDm(url, cookie, info, { signal } = {}) {
-  const { candidates } = parseSurl(url)
+  const { candidates, hosts: shareHosts } = parseSurl(url)
   const errs = []
   let netFails = 0
-  const hosts = [{ host: 'dm.terabox.app', origin: 'https://www.terabox.app' }]
+  const hosts = [...new Set(['dm.terabox.app', 'dm.terabox.com', ...shareHosts])].slice(0, 3).map(host => ({ host, origin: `https://${host.replace(/^dm\./, 'www.')}` }))
   for (const { host, origin } of hosts) {
     for (const shorturl of candidates.slice(0, 2)) {
       if (signal?.aborted) throw new Error('Aborted')
@@ -311,7 +335,7 @@ async function resolveViaDm(url, cookie, info, { signal } = {}) {
         errs.push(`${host}:${shorturl}:no-dlink`)
       } catch (e) {
         if (isCookieError(0, e?.message)) throw e
-        if (isNetworkError(e)) { netFails++; errs.push(`${host}:${String(e?.message || e).slice(0, 60)}`); if (netFails >= 2) throw new Error(errs.join('; ') || 'Network error'); continue }
+        if (isNetworkError(e)) { netFails++; errs.push(`${host}:${String(e?.message || e).slice(0, 60)}`); if (netFails >= 3) throw new Error(errs.join('; ') || 'Network error'); continue }
         errs.push(`${host}:${String(e?.message || e).slice(0, 60)}`)
       }
     }
@@ -358,9 +382,11 @@ export async function resolveTeraboxDirect(url, { cookie='', ndus='', signal, ti
   try {
     const debug = []
     let shareNetFail = false
+    const parsed = parseSurl(input)
+    const info = await getSharePageInfo(parsed.shareUrl, normalizedCookie, parsed.hosts, { signal: s }).catch(() => ({ jsToken:'', sign:'', timestamp:'', shareid:'', uk:'' }))
 
     try {
-      const r = await resolveViaShareApi(input, normalizedCookie, { signal: s })
+      const r = await resolveViaShareApi(input, normalizedCookie, { signal: s, info })
       if (r?.directUrl) return r
       debug.push('share:no-dlink')
     } catch (e) {
@@ -370,30 +396,20 @@ export async function resolveTeraboxDirect(url, { cookie='', ndus='', signal, ti
       if (isNetworkError(e)) shareNetFail = true
     }
 
-    if (shareNetFail && !s.aborted) {
-      // try DM once; if it also fails on network, fail fast with clear message
+    if (!s.aborted) {
       try {
-        const info = await getSharePageInfo(parseSurl(input).shareUrl, normalizedCookie, { signal: s }).catch(() => ({ jsToken:'', sign:'', timestamp:'', shareid:'', uk:'' }))
         const r = await resolveViaDm(input, normalizedCookie, info, { signal: s })
         if (r?.directUrl) return r
         debug.push('dm:no-dlink')
       } catch (e) {
         debug.push(`dm:${String(e?.message || e).slice(0, 160)}`)
         if (isCookieError(0, e?.message)) throw e
+        if (isNetworkError(e)) shareNetFail = true
       }
+    }
 
-      const allNet = debug.length > 0 && debug.every(d => /failed to fetch|network|timeout|aborted|unreachable|dns|econn|enotfound|socket/i.test(d))
-      if (allNet) throw new Error('Cannot reach Terabox servers. Check internet/mobile data, VPN/DNS/private DNS, or adblock, then retry.')
-    } else if (!s.aborted) {
-      try {
-        const info = await getSharePageInfo(parseSurl(input).shareUrl, normalizedCookie, { signal: s }).catch(() => ({ jsToken:'', sign:'', timestamp:'', shareid:'', uk:'' }))
-        const r = await resolveViaDm(input, normalizedCookie, info, { signal: s })
-        if (r?.directUrl) return r
-        debug.push('dm:no-dlink')
-      } catch (e) {
-        debug.push(`dm:${String(e?.message || e).slice(0, 160)}`)
-        if (isCookieError(0, e?.message)) throw e
-      }
+    if (shareNetFail && debug.every(d => /failed to fetch|network|timeout|aborted|unreachable|dns|econn|enotfound|socket|connect/i.test(d))) {
+      throw new Error('Cannot reach Terabox servers on this network. Try another network/DNS/VPN, or switch mobile data. If link opens in browser, the Terabox API host may be blocked on this carrier.')
     }
 
     if (!s.aborted) {
