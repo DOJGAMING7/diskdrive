@@ -30,7 +30,7 @@ export default function HistoryScreen({ state, save, showToast, openPlayer, setC
       <div className="list">
         {items.length===0 && <div className="empty">No history yet. Play a local video to see it here.</div>}
         {items.map(h => <div key={h.id} className="item">
-          <div className="thumb" onClick={()=>play(h)} style={{position:'relative'}}>{h.thumb && !String(h.thumb).startsWith('blob:') ? <img src={h.thumb} alt="" /> : <span style={{fontSize:10,color:'#aaa'}}>No preview</span>}<div style={{position:'absolute',right:4,bottom:4,background:'rgba(0,0,0,.75)',color:'#fff',fontSize:10,padding:'1px 4px',borderRadius:4}}>{fmtTime(h.position||0)}</div></div>
+          <div className="thumb" onClick={()=>play(h)} style={{position:'relative'}}>{h.thumb && !String(h.thumb).startsWith('blob:') ? <img src={h.thumb} alt="" /> : <span style={{fontSize:10,color:'var(--muted)'}}>No preview</span>}<div style={{position:'absolute',right:4,bottom:4,background:'rgba(0,0,0,.75)',color:'var(--fg)',fontSize:10,padding:'1px 4px',borderRadius:4}}>{fmtTime(h.position||0)}</div></div>
           <div className="meta" onClick={()=>play(h)}>
             <div className="title">{h.title||h.name}</div>
             <div className="sub">{h.provider||'LOCAL'} • {h.watchCount?`${h.watchCount} watch`:'Watched'} • {new Date(h.watchedAt||Date.now()).toLocaleString()}</div>

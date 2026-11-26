@@ -323,7 +323,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
   const onPointerDown = (side) => { if (lockedUI) return; if (side !== 'right') return; clearTimeout(holdTimer.current); holdTimer.current = setTimeout(()=>{ setHold2x(true); setShow(false) }, 350) }
   const onPointerUp = () => { clearTimeout(holdTimer.current); if (hold2x) { setHold2x(false); poke() } }
 
-  return <div className="player-wrap" ref={wrapRef} style={{position:'fixed',inset:0,background:'#000',zIndex:300,color:'#fff'}}>
+  return <div className="player-wrap" ref={wrapRef} style={{position:'fixed',inset:0,background:'#000',zIndex:300,color:'var(--fg)'}}>
     <video ref={videoRef} playsInline preload="auto" style={{width:'100%',height:'100%',objectFit:zoom,background:'#000'}} />
     <div style={{position:'absolute',inset:0,display:'grid',gridTemplateColumns:'1fr 1fr 1fr'}} onMouseMove={poke} onTouchStart={(e)=>{ poke(); touchY.current = e.touches?.[0]?.clientY ?? null }} onTouchEnd={(e)=>{ const endY = e.changedTouches?.[0]?.clientY; if (touchY.current!=null && endY!=null && touchY.current-endY > 70 && queue.length>1) setShowQueue(true); touchY.current=null }}>
       <div onClick={()=>onTapZone('left')} onPointerDown={()=>onPointerDown('left')} onPointerUp={onPointerUp} onPointerLeave={onPointerUp} />
@@ -336,7 +336,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
       <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',pointerEvents:'auto'}}>
         {!lockedUI && <button className="iconbtn" onClick={onClose} style={{background:'rgba(0,0,0,.45)'}}>✕</button>}
         {!lockedUI && <div style={{display:'flex',alignItems:'center',gap:10,flex:1,minWidth:0}}>
-          <div style={{width:52,height:32,borderRadius:8,overflow:'hidden',background:'#111',border:'1px solid #333',display:'grid',placeItems:'center',flex:'0 0 auto'}}>{item.thumb && !String(item.thumb).startsWith('blob:') ? <img src={item.thumb} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <span style={{fontSize:10,color:'#888'}}>VID</span>}</div>
+          <div style={{width:52,height:32,borderRadius:8,overflow:'hidden',background:'#1a1a1a',border:'1px solid #333',display:'grid',placeItems:'center',flex:'0 0 auto'}}>{item.thumb && !String(item.thumb).startsWith('blob:') ? <img src={item.thumb} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : <span style={{fontSize:10,color:'var(--muted)'}}>VID</span>}</div>
           <div style={{minWidth:0}}><div style={{fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{item.title||item.name}</div><div className="small">{hold2x?'2x speed':`${speed}x`}{item.provider?` • ${item.provider}`:''}{activeJob?` • ${activeJob.status} ${activeJob.progress||0}%`:''}</div></div>
         </div>}
         <button className="iconbtn" onClick={()=>setLockedUI(v=>!v)} style={{background:'rgba(0,0,0,.45)',marginLeft: lockedUI?'auto':0}}>{lockedUI?'🔒':'🔓'}</button>
@@ -360,13 +360,13 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
         {pipMsg && <div style={{marginBottom:10,fontSize:13}}>{pipMsg}</div>}
         {loading && !err && <div style={{marginBottom:10,fontSize:13}}>Loading…</div>}
         <div style={{height:34,display:'flex',alignItems:'center',cursor:'pointer',touchAction:'none'}} onPointerDown={onSeekPointerDown} onPointerMove={onSeekPointerMove} onPointerUp={onSeekPointerUp} onPointerCancel={onSeekPointerUp}>
-          <div style={{position:'relative',width:'100%',height:6,background:'rgba(255,255,255,.2)',borderRadius:999}}>
-            <div style={{position:'absolute',left:0,top:0,bottom:0,width:`${buffered}%`,background:'rgba(255,255,255,.28)',borderRadius:999}} />
-            <div style={{position:'absolute',left:0,top:0,bottom:0,width:`${duration?(currentTime/duration)*100:0}%`,background:'#fff',borderRadius:999}} />
-            <div style={{position:'absolute',top:'50%',left:`${duration?(currentTime/duration)*100:0}%`,width:14,height:14,borderRadius:999,background:'#fff',transform:'translate(-50%,-50%)',boxShadow:'0 0 0 3px rgba(255,255,255,.15)'}} />
+          <div style={{position:'relative',width:'100%',height:6,background:'rgba(255,255,255,.15)',borderRadius:999}}>
+            <div style={{position:'absolute',left:0,top:0,bottom:0,width:`${buffered}%`,background:'rgba(255,255,255,.22)',borderRadius:999}} />
+            <div style={{position:'absolute',left:0,top:0,bottom:0,width:`${duration?(currentTime/duration)*100:0}%`,background:'var(--accent)',borderRadius:999}} />
+            <div style={{position:'absolute',top:'50%',left:`${duration?(currentTime/duration)*100:0}%`,width:14,height:14,borderRadius:999,background:'var(--accent)',transform:'translate(-50%,-50%)',boxShadow:'0 0 0 3px rgba(0,167,111,.2)'}} />
           </div>
         </div>
-        <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#ddd',marginBottom:10}}><span>{fmtTime(currentTime)}</span><span>{fmtTime(duration)}</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'var(--muted)',marginBottom:10}}><span>{fmtTime(currentTime)}</span><span>{fmtTime(duration)}</span></div>
         <div className="row" style={{justifyContent:'space-between',flexWrap:'wrap'}}>
           <div className="row" style={{flexWrap:'wrap'}}>
             <select className="input" style={{width:88,padding:'8px 10px'}} value={speed} onChange={e=>setSpeed(Number(e.target.value))}>
@@ -393,7 +393,7 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
       </div>}
     </div>}
 
-    {showInfo && <div style={{position:'absolute',left:12,right:12,bottom:'max(96px,env(safe-area-inset-bottom))',background:'rgba(0,0,0,.95)',border:'1px solid #333',borderRadius:12,padding:12,pointerEvents:'auto',zIndex:20}}>
+    {showInfo && <div style={{position:'absolute',left:12,right:12,bottom:'max(96px,env(safe-area-inset-bottom))',background:'rgba(20,20,20,.96)',border:'1px solid #333',borderRadius:12,padding:12,pointerEvents:'auto',zIndex:20}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}><div style={{fontWeight:700}}>Video links</div><button className="iconbtn" onClick={()=>setShowInfo(false)}>✕</button></div>
       <div className="small" style={{wordBreak:'break-all',marginBottom:8}}><b>Source:</b> {item.sourceUrl || 'Local file'}</div>
       <div className="small" style={{wordBreak:'break-all',marginBottom:8}}><b>Stream:</b> {item.src || '-'}</div>
@@ -404,10 +404,10 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
       </div>
     </div>}
 
-    {showQueue && queue.length>1 && <div style={{position:'absolute',left:0,right:0,bottom:0,maxHeight:'55%',background:'rgba(0,0,0,.94)',borderTop:'1px solid #333',padding:'12px 14px max(14px,env(safe-area-inset-bottom))',overflow:'auto',pointerEvents:'auto'}}>
+    {showQueue && queue.length>1 && <div style={{position:'absolute',left:0,right:0,bottom:0,maxHeight:'55%',background:'rgba(20,20,20,.96)',borderTop:'1px solid #333',padding:'12px 14px max(14px,env(safe-area-inset-bottom))',overflow:'auto',pointerEvents:'auto'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}><div style={{fontWeight:700}}>Up next / Playlist</div><button className="iconbtn" onClick={()=>setShowQueue(false)}>✕</button></div>
       <div className="list" style={{gap:8}}>
-        {queue.map((q,i)=><button key={q.id||i} onClick={()=>{ onSelect(q); setShowQueue(false) }} style={{display:'flex',gap:10,alignItems:'center',textAlign:'left',background:i===idx?'#151515':'transparent',border:'1px solid #222',borderRadius:12,padding:8,color:'#fff'}}>
+        {queue.map((q,i)=><button key={q.id||i} onClick={()=>{ onSelect(q); setShowQueue(false) }} style={{display:'flex',gap:10,alignItems:'center',textAlign:'left',background:i===idx?'rgba(0,167,111,.12)':'transparent',border:i===idx?'1px solid rgba(0,167,111,.4)':'1px solid #222',borderRadius:12,padding:8,color:'var(--fg)'}}>
           <div style={{width:64,height:40,borderRadius:8,overflow:'hidden',background:'#111',flex:'0 0 auto',display:'grid',placeItems:'center'}}>{q.thumb && !String(q.thumb).startsWith('blob:') ? <img src={q.thumb} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:<span style={{fontSize:10,color:'#777'}}>VID</span>}</div>
           <div style={{minWidth:0}}><div style={{fontSize:14,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{q.title||q.name}</div><div style={{fontSize:12,color:'#aaa'}}>{i===idx?'Now playing':'Tap to play'}{q.date?` • ${q.date}`:''}</div></div>
         </button>)}

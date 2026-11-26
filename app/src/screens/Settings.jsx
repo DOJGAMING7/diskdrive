@@ -218,8 +218,8 @@ export default function SettingsScreen({ state, save, showToast, onLock, bundleS
         {serverStatus ? <div>{serverStatus.ok?'●':'○'} {serverStatus.msg}{serverStatus.at?` • ${new Date(serverStatus.at).toLocaleTimeString()}`:''}</div> : null}
         {bundleStatus?.meta ? <div style={{marginTop:6}}>UI version: {bundleStatus.meta.version || 'bundled'}{bundleStatus.meta.lastChecked ? ` • checked ${new Date(bundleStatus.meta.lastChecked).toLocaleString()}` : ''}</div> : null}
         {latestUi?.version && latestUi.version !== bundleStatus?.meta?.version ? <div style={{marginTop:6,color:'#7dd3fc'}}>Update available: {latestUi.version}{latestUi.date?` • ${latestUi.date}`:''}</div> : latestUi?.version ? <div style={{marginTop:6,color:'#86efac'}}>You are on latest UI ({latestUi.version})</div> : null}
-        {bundleStatus?.manifest?.notes?.length ? <div style={{marginTop:8}}><div style={{fontWeight:600,color:'#fff'}}>What’s new:</div>{bundleStatus.manifest.notes.map((n,i)=><div key={i}>• {n}</div>)}</div> : null}
-        {bundleStatus?.manifest?.history?.length ? <details style={{marginTop:8}}><summary style={{cursor:'pointer'}}>Update history</summary>{bundleStatus.manifest.history.map((h,i)=><div key={i} style={{marginTop:6}}><div style={{color:'#fff'}}>{h.version} {h.date?`• ${h.date}`:''}</div>{(h.notes||[]).map((n,j)=><div key={j}>- {n}</div>)}</div>)}</details> : null}
+        {bundleStatus?.manifest?.notes?.length ? <div style={{marginTop:8}}><div style={{fontWeight:600,color:'var(--fg)'}}>What’s new:</div>{bundleStatus.manifest.notes.map((n,i)=><div key={i}>• {n}</div>)}</div> : null}
+        {bundleStatus?.manifest?.history?.length ? <details style={{marginTop:8}}><summary style={{cursor:'pointer'}}>Update history</summary>{bundleStatus.manifest.history.map((h,i)=><div key={i} style={{marginTop:6}}><div style={{color:'var(--fg)'}}>{h.version} {h.date?`• ${h.date}`:''}</div>{(h.notes||[]).map((n,j)=><div key={j}>- {n}</div>)}</div>)}</details> : null}
       </div>
     </div>
 

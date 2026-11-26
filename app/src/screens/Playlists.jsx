@@ -71,7 +71,7 @@ export default function PlaylistScreen({ state, save, showToast, openPlayer, set
         <button className="btn ghost" onClick={createPlaylist}>New</button>
       </div>
       <div className="list" style={{marginTop:12}}>
-        {playlists.map(pl => <div key={pl.id} className={`item ${selected===pl.id?'active':''}`} style={selected===pl.id?{borderColor:'#fff'}:{}}>
+        {playlists.map(pl => <div key={pl.id} className={`item ${selected===pl.id?'active':''}`} style={selected===pl.id?{borderColor:'var(--accent)'}:{}}>
           <div className="meta" onClick={()=>setSelected(pl.id)}>
             <div className="title">{pl.name}</div>
             <div className="sub">{pl.items.length} videos • {new Date(pl.updatedAt||Date.now()).toLocaleDateString()}</div>

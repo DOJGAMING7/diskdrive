@@ -159,13 +159,13 @@ export default function Home({ state, save, showToast, openPlayer, setTab, addDo
       <div className="small" style={{ marginTop: 10 }}>Supports multiple Terabox links in one message. Terabox resolves on-device using your private NDUS/cookie in Settings. DiskWala coming soon.</div>
 
       {(busy || progress.total > 0) && <div style={{ marginTop: 14 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#ddd', marginBottom: 6 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
           <span>{progress.current || 'Ready'}</span><span>{progress.done}/{progress.total}</span>
         </div>
         <div style={{ height: 10, background: '#111', border: '1px solid #2a2a2a', borderRadius: 999, overflow: 'hidden' }}>
           <div style={{ width: `${pct}%`, height: '100%', background: '#fff', transition: 'width .25s ease' }} />
         </div>
-        {progress.errors?.length > 0 && <div style={{ marginTop: 10, fontSize: 12, color: '#ddd', whiteSpace: 'pre-wrap' }}>{progress.errors.slice(-3).join('\n')}</div>}
+        {progress.errors?.length > 0 && <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{progress.errors.slice(-3).join('\n')}</div>}
       </div>}
     </div>
 

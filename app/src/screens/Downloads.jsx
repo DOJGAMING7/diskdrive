@@ -151,7 +151,7 @@ export default function Downloads({ state, save, showToast, openPlayer, setMenu,
             </div>
           </div>
           <div style={{height:8,background:'#111',border:'1px solid #2a2a2a',borderRadius:999,overflow:'hidden',marginTop:8}}>
-            <div style={{width:`${job.progress||0}%`,height:'100%',background: job.status==='error'?'#a33':job.status==='cancelled'?'#666':'#fff',transition:'width .2s'}} />
+            <div style={{width:`${job.progress||0}%`,height:'100%',background: job.status==='error'?'#ff6b6b':job.status==='cancelled'?'#666':'var(--accent)',transition:'width .2s'}} />
           </div>
         </div>)}
       </div>
