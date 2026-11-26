@@ -77,29 +77,61 @@ export default function Player({ item, queue=[], onClose, onProgress, onSelect, 
           return
         }
       }
-      // Native fallback: download to app cache and play local file (avoids CORS/header issues)
-      if (Capacitor?.isNativePlatform?.() && (item.directUrl || item.src)) {
+      // Native fallback: download to app cache and play local file (avoids CORS/header/media issues)
+      if (Capacitor?.isNativePlatform?.() && (item.directUrl || item.src || item.downloadUrl)) {
         try {
           setErr('Direct stream failed. Downloading local playback cache…')
           setLoading(true)
           const { Filesystem, Directory } = await import('@capacitor/filesystem')
           const { Capacitor } = await import('@capacitor/core')
-          const srcUrl = item.directUrl || item.src
+          const candidates = [item.directUrl, item.downloadUrl, item.src, item.proxyDownloadUrl, item.proxyStreamUrl]
+            .map(v => String(v || '').trim()).filter((u, i, a) => u && /^https?:/i.test(u) && a.indexOf(u) === i)
           const ext = String(item.name || item.title || 'video.mp4').split('.').pop()?.replace(/[^a-z0-9]/ig,'') || 'mp4'
           const path = `playcache/${(item.id || 'vid').replace(/[^a-zA-Z0-9_-]/g,'')}.${ext}`
           try { await Filesystem.mkdir({ path: 'playcache', directory: Directory.Cache, recursive: true }) } catch {}
-          const headers = {}
-          try { const u = new URL(item.sourceUrl || srcUrl); headers['Referer'] = u.origin + '/' } catch {}
-          await Filesystem.downloadFile({ url: srcUrl, path, directory: Directory.Cache, headers, progress: false })
+          const baseHeaders = {
+            'Accept': '*/*',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+          }
+          try { const u = new URL(item.sourceUrl || candidates[0] || ''); baseHeaders['Referer'] = u.origin + '/' } catch {}
+          const cookie = String(teraboxCookie || '').trim()
+          if (cookie) baseHeaders['Cookie'] = cookie.includes('ndus=') ? cookie : `ndus=${cookie}`
+          let lastErr
+          let ok = false
+          for (const srcUrl of candidates) {
+            try {
+              try {
+                await Filesystem.downloadFile({ url: srcUrl, path, directory: Directory.Cache, headers: baseHeaders, progress: false })
+              } catch (nativeErr) {
+                // Fallback through patched fetch/CapacitorHttp then write base64
+                const fres = await fetch(srcUrl, { headers: baseHeaders, credentials: 'omit' })
+                if (!fres.ok) throw new Error(`HTTP ${fres.status}`)
+                const blob = await fres.blob()
+                if (!blob?.size) throw nativeErr
+                const b64 = await new Promise((resolve, reject) => {
+                  const r = new FileReader(); r.onerror = () => reject(new Error('read failed'))
+                  r.onload = () => { const s = String(r.result || ''); resolve(s.includes(',') ? s.split(',')[1] : s) }
+                  r.readAsDataURL(blob)
+                })
+                await Filesystem.writeFile({ path, directory: Directory.Cache, data: b64, recursive: true })
+              }
+              const stat = await Filesystem.stat({ path, directory: Directory.Cache }).catch(() => null)
+              if (!stat?.size) throw new Error('Downloaded file is empty')
+              ok = true
+              break
+            } catch (e) { lastErr = e }
+          }
+          if (!ok) throw lastErr || new Error('Download failed')
           const uri = await Filesystem.getUri({ path, directory: Directory.Cache })
           const local = Capacitor.convertFileSrc(uri.uri)
           setLoading(false)
           setErr('')
-          onSelect({ ...item, srcLocal: local, src: local, directUrl: item.directUrl || srcUrl })
+          onSelect({ ...item, srcLocal: local, src: local })
           return
         } catch (e) {
           setLoading(false)
-          setErr(`Cannot play/download stream. ${String(e?.message||e).slice(0,160)}`)
+          const msg = String(e?.message || e)
+          setErr(`Cannot play/download stream. ${msg.slice(0,180)}`)
           return
         }
       }

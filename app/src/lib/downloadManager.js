@@ -14,7 +14,7 @@ function loadJobs() {
 function saveJobsMap(jobs) {
   try {
     const arr = [...jobs.values()].map(j => {
-      const { _abort, ...rest } = j
+      const { _abort, teraboxCookie, ...rest } = j
       return { ...rest, speedBps: 0, etaSec: rest.etaSec ?? null }
     })
     localStorage.setItem(JOBS_KEY, JSON.stringify(arr))
@@ -48,9 +48,14 @@ function normalizeUrlList(job) {
     .filter((u, i, a) => u && /^https?:|^blob:|^data:/i.test(u) && a.indexOf(u) === i)
 }
 function dlHeaders(job) {
-  const h = { 'Accept': '*/*' }
+  const h = {
+    'Accept': '*/*',
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+  }
   const ref = job.sourceUrl || job.directUrl || job.downloadUrl || job.src || ''
-  try { const u = new URL(ref); h['Referer'] = u.origin + '/'; } catch {}
+  try { const u = new URL(ref); h['Referer'] = u.origin + '/' } catch {}
+  const cookie = String(job.teraboxCookie || getTeraboxCookie?.() || '').trim()
+  if (cookie) h['Cookie'] = cookie.includes('ndus=') ? cookie : `ndus=${cookie}`
   return h
 }
 
@@ -70,7 +75,7 @@ function triggerBlobDownload(blob, name) {
   setTimeout(() => URL.revokeObjectURL(url), 60000)
 }
 
-export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
+export function createDownloadManager({ onUpdate, onComplete, resolveItem, getTeraboxCookie }) {
   const jobs = new Map()
   const controllers = new Map()
   let running = 0
@@ -130,9 +135,21 @@ export function createDownloadManager({ onUpdate, onComplete, resolveItem }) {
             })
           } catch {}
           try {
-            const res = await Filesystem.downloadFile({ url: dlUrl, path: dest, directory: destDir.directory, progress: true, headers: dlHeaders(job) })
-            if (job.status === 'cancelled') throw new DOMException('Aborted', 'AbortError')
-            if (!res?.path && !res) throw new Error('Download failed')
+            try {
+              const res = await Filesystem.downloadFile({ url: dlUrl, path: dest, directory: destDir.directory, progress: true, headers: dlHeaders(job) })
+              if (job.status === 'cancelled') throw new DOMException('Aborted', 'AbortError')
+              if (!res?.path && !res) throw new Error('Download failed')
+            } catch (nativeErr) {
+              if (job.status === 'cancelled') throw new DOMException('Aborted', 'AbortError')
+              // Fallback: patched fetch (CapacitorHttp) -> write file
+              const fres = await fetch(dlUrl, { headers: dlHeaders(job), credentials: 'omit', signal: ctrl.signal })
+              if (!fres.ok) throw new Error(`HTTP ${fres.status}`)
+              const blob = await fres.blob()
+              if (!blob?.size) throw nativeErr
+              const b64 = await blobToBase64(blob)
+              await Filesystem.writeFile({ path: dest, directory: destDir.directory, data: b64, recursive: true })
+              job.size = blob.size; job.totalBytes = blob.size; job.receivedBytes = blob.size
+            }
             try {
               const st = await Filesystem.stat({ path: dest, directory: destDir.directory })
               if (st?.size) { job.size = Number(st.size); job.totalBytes = Number(st.size); job.receivedBytes = Number(st.size) }

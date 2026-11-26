@@ -81,10 +81,11 @@ export default function App() {
         }
       },
       getSettings: () => ({ nativeDownload: true }),
+      getTeraboxCookie: () => stateRef.current?.settings?.teraboxCookie || '',
       resolveItem: async (job) => {
         if (!job.sourceUrl) throw new Error('No source URL to re-resolve')
         const cfg = teraboxCfg.current
-        const r = await resolveTeraboxLink(job.sourceUrl, { teraboxCookie: cfg.teraboxCookie })
+        const r = await resolveTeraboxLink(job.sourceUrl, { teraboxCookie: cfg.teraboxCookie || stateRef.current?.settings?.teraboxCookie || '' })
         return r
       }
     })
@@ -247,7 +248,7 @@ export default function App() {
     const dir = state?.settings?.downloadDir || 'Download'
     const storageMode = state?.settings?.downloadStorage || 'inapp'
     if (!downloadMgr.current) { showToast('Download manager not ready'); return null }
-    const res = downloadMgr.current.enqueue(item, dir, storageMode)
+    const res = downloadMgr.current.enqueue({ ...item, teraboxCookie: state?.settings?.teraboxCookie || '' }, dir, storageMode)
     if (res?.deduped) showToast(`Already in queue (${res.status})`)
     else showToast(storageMode === 'device' ? 'Download queued (device folder)' : 'Download queued (in-app storage)')
     return res
